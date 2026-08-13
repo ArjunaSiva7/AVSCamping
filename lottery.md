@@ -2,7 +2,7 @@
 This describes steps to follow for the AVS camping lottery for assigning campsite allocations.
 
 *Inputs:*
-- Signups: An input sheet of signups which include names of signups, their campsite preferences, first submitted timestamp and any other relevant details. 
+- Signups: An input sheet of signups which include names of signups, their campsite preferences, first submitted timestamp, number of attendees and any other relevant details. 
 - Campsites: A sheet describing the campsites available. This sheet indicates the number of campsites of each type. They may be named accordingly based on the type of site they are. 
 - Directory: A directory of all families that can be used to cross reference agaisnt signups.
 - Output: A path to a sheet or some other file to place the output.
@@ -28,14 +28,14 @@ Follow the procedure as follows.
     - Else, If that site type is available, assign that type to that family. Note: We are not assigning specific sites, only the site _types_. Keep track of how many sites of that type are left as you are assigning.
     - Else, (if that site type is not available) go on to the next site type and try assigning that.
     - If you have run out of site types: 
-      - For the first 20 families, add them to a special site type, WAITLIST.
+      - For the first 20 families, add them to a special site type, CABINWAITLIST-<number>.
       - Check the family's response in the signup whether they are willing to accept a tent site. If they will accept a tent add them to group *A*. Otherwise leave the unassigned to a site type.
 - Assign Tent Sites: Look at families in group *A*, including those who were newly added from the step above.
  - For each family starting with the sorted from first to last submitted timestamp for each family, do the following:
     - Assign them the tent site type suffixed by an incrementing number according to how many tent campers are assigned.
 
 - Output: Save everything to the speciifed output file. Include site type assignments, and the family details including children names and their associated grades. Use the following columns for the output:
-   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Site Type, Signup Timestamp, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
+   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Site Type, Attendees, Signup Timestamp, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
 
 *Lottery Algorithm*:
 The algorithm here describes how to generate a *Code* and is described as follows:
