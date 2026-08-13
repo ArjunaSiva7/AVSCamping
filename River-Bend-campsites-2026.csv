@@ -1,0 +1,142 @@
+site,section,x_px,y_px
+T-1,Oxbow RV,37,634
+T-3,Oxbow RV,31,594
+T-4,Oxbow RV,33,577
+T-5,Oxbow RV,39,559
+T-6,Oxbow RV,43,541
+T-10,Oxbow RV,73,458
+T-11,Oxbow RV,82,438
+T-12,Oxbow RV,91,418
+T-13,Oxbow RV,95,398
+T-14,Oxbow RV,105,378
+T-15,Oxbow RV,115,358
+T-16,Oxbow RV,125,338
+T-18,Oxbow RV,159,381
+T-19,Oxbow RV,144,401
+T-20,Oxbow RV,136,419
+T-24,Oxbow RV,159,492
+T-25,Oxbow RV,159,509
+T-26,Oxbow RV,159,526
+T-27,Oxbow RV,159,544
+T-28,Oxbow RV,159,561
+T-30,Oxbow RV,130,561
+T-31,Oxbow RV,130,544
+T-32,Oxbow RV,130,526
+T-33,Oxbow RV,130,509
+T-34,Oxbow RV,130,492
+E-1,RV Site,333,358
+E-2,RV Site,333,373
+E-3,RV Site,333,387
+E-4,RV Site,333,402
+E-5,RV Site,333,417
+E-6,RV Site,333,431
+E-7,RV Site,333,446
+E-8,RV Site,333,460
+D-1,RV Site,357,358
+D-2,RV Site,357,373
+D-3,RV Site,357,387
+D-4,RV Site,357,402
+D-5,RV Site,357,417
+D-6,RV Site,357,431
+D-7,RV Site,357,446
+D-8,RV Site,357,460
+D-9,RV Site,353,480
+DT-1,RV Site,353,504
+C-1,RV Site,405,364
+C-2,RV Site,405,380
+C-3,RV Site,405,396
+C-4,RV Site,405,412
+C-5,RV Site,405,477
+C-6,RV Site,405,492
+C-7,RV Site,405,506
+B-1,RV Site,428,364
+B-2,RV Site,428,380
+B-3,RV Site,428,396
+B-4,RV Site,428,412
+B-5,RV Site,428,477
+B-6,RV Site,428,492
+A-2,RV Site,492,378
+A-3,RV Site,490,397
+A-4,RV Site,490,417
+A-5,RV Site,490,435
+A-6,RV Site,490,459
+A-7,RV Site,490,480
+A-8,RV Site,490,499
+A-9,RV Site,490,517
+A-10,RV Site,488,539
+A-11,RV Site,478,579
+A-12,RV Site,455,595
+R-2,R Site,422,595
+R-3,R Site,400,597
+R-4,R Site,378,597
+R-5,R Site,350,595
+R-6,R Site,211,602
+R-7,R Site,188,610
+R-8,R Site,172,617
+R-9,R Site,155,627
+R-10,R Site,135,635
+R-11,R Site,118,640
+R-12,R Site,100,645
+R-13,R Site,82,648
+R-14,R Site,67,649
+R-15,R Site,54,648
+S-1,Stumptown,572,298
+S-2,Stumptown,573,281
+S-3,Stumptown,575,264
+S-4,Stumptown,577,248
+S-5,Stumptown,582,236
+S-6,Stumptown,633,233
+S-7,Stumptown,647,249
+S-8,Stumptown,653,268
+S-9,Stumptown,658,286
+S-10,Stumptown,660,303
+S-11,Stumptown,660,319
+S-12,Stumptown,660,334
+S-13,Stumptown,605,313
+VW-1,VWs,715,296
+VW-2,VWs,743,293
+VW-3,VWs,777,295
+FC-1,Fish Camp,772,138
+FC-2,Fish Camp,765,125
+FC-3,Fish Camp,758,106
+FC-4,Fish Camp,748,86
+FC-5,Fish Camp,747,68
+FC-6,Fish Camp,742,50
+CC-1,Camp Canoe,945,225
+CC-2,Camp Canoe,957,243
+CC-3,Camp Canoe,962,268
+CC-4,Camp Canoe,962,296
+CC-5,Camp Canoe,942,321
+CC-6,Camp Canoe,923,339
+CC-7,Camp Canoe,898,237
+CC-8,Camp Canoe,902,218
+CC-9,Camp Canoe,908,201
+CC-10,Camp Canoe,917,185
+CC-11,Camp Canoe,908,170
+H-1,Tent Site,826,127
+H-2,Tent Site,868,127
+H-3,Tent Site,972,185
+H-4,Tent Site,1000,197
+H-5,Tent Site,1020,211
+H-6,Tent Site,1036,226
+H-7,Tent Site,1028,264
+H-8,Tent Site,1033,283
+H-9,Tent Site,995,348
+H-21,Tent Site,848,353
+H-22,Tent Site,843,368
+H-23,Tent Site,880,395
+H-24,Tent Site,896,419
+H-25,Tent Site,850,447
+H-26,Tent Site,832,467
+H-27,Tent Site,807,486
+H-28,Tent Site,776,440
+H-29,Tent Site,748,431
+H-30,Tent Site,708,416
+H-31,Tent Site,696,400
+H-32,Tent Site,688,391
+H-33,Tent Site,753,479
+H-34,Tent Site,730,495
+H-35,Tent Site,777,512
+H-36,Tent Site,842,522
+H-37,Tent Site,766,546
+H-38,Tent Site,735,537
