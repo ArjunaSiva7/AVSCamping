@@ -34,6 +34,9 @@ Follow the procedure as follows.
  - For each family starting with the sorted from first to last submitted timestamp for each family, do the following:
     - Assign them the tent site type suffixed by an incrementing number according to how many tent campers are assigned.
 
+- Output: Save everything to the speciifed output file. Include site type assignments, and the family details including children names and their associated grades. Use the following columns for the output:
+   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Site Type, Signup Timestamp, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
+
 *Lottery Algorithm*:
 The algorithm here describes how to generate a *Code* and is described as follows:
 The lottery is based on a 24 letter code. Based on an alphabetic sort, the higher the code, the more likely a family has gotten their preferences.
