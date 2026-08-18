@@ -27,13 +27,14 @@ Follow the procedure as follows.
   - Signups with no match in the directory are still included in the lottery, flagged in *Notes* for follow-up.
 - Lottery: Run the lottery itself. The algorithm is described in a separate section below under *Lottery Algorithm*.
 - Partition: Partition families into two groups, *A* - ones that specified Tent camping as their first (and/or only) preference and *B* - the rest (who preferred a cabin/glamping option).
+  - Families who left their preferences blank, or whose preferences can't be interpreted, go into neither group. Leave their *Site Type* empty, flag them in *Notes* as missing preferences, and follow up with them rather than guessing a preference on their behalf.
 - Assign Glamping Sites: For each family in group *B*, starting first using the *Code* assigned to each family sorted starting with highest and then lower codes. Assign site types as follows:
   - Based on the family's preferences from first to last: 
     - If that site type is a Tent type, add the family to group *A*. 
     - Else, If that site type is available and its maximum occupancy fits the family's number of attendees, assign that type to that family. Note: We are not assigning specific sites, only the site _types_. Keep track of how many sites of that type are left as you are assigning.
     - Else, (if that site type is not available, or is too small for the party) go on to the next site type and try assigning that.
     - If you have run out of site types, the two following steps are independent and both apply: 
-      - Record a cabin waitlist position in the *Cabin Waitlist* column, as CABINWAITLIST-<number>, numbering from 1 in the order families are processed, for the first 20 such families. Families beyond the first 20 get no waitlist position. Do not put the waitlist position in *Site Type* -- a waitlisted family keeps their waitlist position even if they also get a tent site below, so that they can be upgraded if a cabin frees up. On a re-run, renumber waitlist positions from scratch for families that are not *Locked*.
+      - Record a cabin waitlist position in the *Cabin Waitlist* column, as CABINWAITLIST-<number>, numbering from 1 in the order families are processed. Every family that didn't win a cabin gets a position -- there is no cap on the waitlist. Do not put the waitlist position in *Site Type* -- a waitlisted family keeps their waitlist position even if they also get a tent site below, so that they can be upgraded if a cabin frees up. On a re-run, renumber waitlist positions from scratch for families that are not *Locked*.
       - Check the family's response in the signup whether they are willing to accept a tent site. If they will accept a tent add them to group *A*. Otherwise leave them unassigned to a site type.
 - Assign Tent Sites: Look at families in group *A*, including those who were newly added from the step above.
  - Order group *A* by each family's own first submitted timestamp from the signup, regardless of whether they started in group *A* or were demoted from group *B*. Being demoted neither advances nor penalizes a family's place in the tent order. Where timestamps tie, break the tie by *Code*, highest first.
@@ -42,7 +43,8 @@ Follow the procedure as follows.
  - The number is an ordering ticket, not a specific campsite, so do not cap it at the real number of tent sites: every family in group *A* gets one. Actual campsite placement, tent site sharing, and the tent overflow waitlist (TENTWAITLIST) are all decided later in the assignment stage described in assignments.md.
 
 - Output: Save everything to the specified output file. Include site type assignments, and the family details including children names and their associated grades. Use the following columns for the output:
-   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Code, Site Type, Cabin Waitlist, Locked, Attendees, Signup Timestamp, Notes, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
+   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Code, Site Type, Cabin Waitlist, Locked, Attendees, Signup Timestamp, Notes, Children
+  - Children is a single column holding any number of children as pipe separated Name:Grade pairs, ordered youngest grade first, e.g. `Ada Siva:2|Ravi Siva:4`. This keeps the column set fixed no matter how many children a family has. Use `K` for kindergarten and `TK` for transitional kindergarten, and leave the grade empty after the colon if it is unknown, e.g. `Sam Lee:`. If a child's name contains a colon or pipe, strip it.
   - Code holds the lottery code from the *Lottery Algorithm* below and must always be written out, since re-runs depend on reading it back.
   - Attendees is the number of people in the family's party. It is carried through to the assignment stage, where it bounds how many families share a tent site.
   - Locked is empty by default and set once a family has been notified of their assignment. Leave any existing value untouched.

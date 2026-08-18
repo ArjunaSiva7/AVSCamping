@@ -3,6 +3,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 
 *Inputs*:
 - Families: A list of families that include the family members, the children grades, the number of attendees and what site type that family was assigned to. This is the output of the lottery, so it also carries each family's *Code*, *Cabin Waitlist* position and *Locked* flag. Preserve all of those columns as-is.
+  - Children and their grades come from the single *Children* column, holding pipe separated Name:Grade pairs ordered youngest grade first, e.g. `Ada Siva:2|Ravi Siva:4`. Grades may be `K` or `TK`, and a pair may have an empty grade. Parse that column to do the grade based grouping below, and write it back unchanged.
 - Campsites: A sheet describing the campsites available, and adjacency information on which sites are near each other. This sheet indicates the number of campsites of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* below for the expected columns.
 - Output: A path to a sheet or some other file to place the output. By default, use the Families input.
 - Adjustments: A sheet, list of text, or a combination of tweaks that inform the assignment strategy. This is often used to override the default strategy when a specific family requests to be near another family.
