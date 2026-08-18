@@ -3,7 +3,7 @@ This describes steps to follow for the AVS camping lottery for assigning campsit
 
 *Inputs:*
 - Signups: An input sheet of signups which include names of signups, their campsite preferences, first submitted timestamp, number of attendees and any other relevant details. 
-- Campsites: A sheet describing the campsites available. This sheet indicates the number of campsites of each type, and where known the maximum occupancy of each type. They may be named accordingly based on the type of site they are. 
+- Campsites: A sheet describing the campsites available. This sheet indicates the number of campsites of each type, and where known the maximum occupancy of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* in assignments.md for the expected columns.
 - Directory: A directory of all families that can be used to cross reference against signups.
 - Output: A path to a sheet or some other file to place the output.
 
