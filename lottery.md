@@ -22,7 +22,9 @@ Follow the procedure as follows.
 - Load: Load the directory, and cross reference signups against families. 
   - Bias toward exact matches and then use fuzzier matches after that for those who signed up with shortened versions of their names. 
   - Flag cases where a family may have signed up more than once (either the same parent, or all parents).
+    - De-duplicate by default: collapse those to a single entry per family before running the lottery, so a family only ever gets one *Code* and one assignment. Keep the earliest submitted timestamp, merge the details, and prefer the most complete or most recent set of preferences. Note the de-duplication and any conflicting preferences in *Notes*.
   - Load information on the names of children, their grades, and the parent emails
+  - Signups with no match in the directory are still included in the lottery, flagged in *Notes* for follow-up.
 - Lottery: Run the lottery itself. The algorithm is described in a separate section below under *Lottery Algorithm*.
 - Partition: Partition families into two groups, *A* - ones that specified Tent camping as their first (and/or only) preference and *B* - the rest (who preferred a cabin/glamping option).
 - Assign Glamping Sites: For each family in group *B*, starting first using the *Code* assigned to each family sorted starting with highest and then lower codes. Assign site types as follows:
@@ -36,13 +38,15 @@ Follow the procedure as follows.
 - Assign Tent Sites: Look at families in group *A*, including those who were newly added from the step above.
  - Order group *A* by each family's own first submitted timestamp from the signup, regardless of whether they started in group *A* or were demoted from group *B*. Being demoted neither advances nor penalizes a family's place in the tent order. Where timestamps tie, break the tie by *Code*, highest first.
  - For each family starting with the sorted from first to last submitted timestamp for each family, do the following:
-    - Assign them the tent site type suffixed by an incrementing number according to how many tent campers are assigned.
+    - Assign them the tent site type suffixed by an incrementing number according to how many tent campers are assigned, numbering from 1 (e.g. TENT-1, TENT-2, ...).
+ - The number is an ordering ticket, not a specific campsite, so do not cap it at the real number of tent sites: every family in group *A* gets one. Actual campsite placement, tent site sharing, and the tent overflow waitlist (TENTWAITLIST) are all decided later in the assignment stage described in assignments.md.
 
 - Output: Save everything to the specified output file. Include site type assignments, and the family details including children names and their associated grades. Use the following columns for the output:
-   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Code, Site Type, Cabin Waitlist, Locked, Attendees, Signup Timestamp, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
+   Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Code, Site Type, Cabin Waitlist, Locked, Attendees, Signup Timestamp, Notes, Child A Name, Child A Grade, Child B Name, Child B Grade, Child C Name, Child C Grade, ...
   - Code holds the lottery code from the *Lottery Algorithm* below and must always be written out, since re-runs depend on reading it back.
   - Attendees is the number of people in the family's party. It is carried through to the assignment stage, where it bounds how many families share a tent site.
   - Locked is empty by default and set once a family has been notified of their assignment. Leave any existing value untouched.
+  - Notes carries flags raised while loading, such as de-duplicated signups, conflicting preferences, and signups with no directory match.
   - Also record the random seed used for code generation alongside the output, so a draw can be reproduced if it is disputed.
 
 *Lottery Algorithm*:

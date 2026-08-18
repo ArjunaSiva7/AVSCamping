@@ -11,6 +11,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 *Procedure*:
 - Start one by one for each family assigning them to a specific site using the *Assignment Strategy* below. 
 - You will likely need to iterate, shuffle or move families around to adhere to the strategy
+- Tent site types coming out of the lottery are numbered tickets (TENT-1, TENT-2, ...) reflecting signup order, not real campsites. Use that order when placing tent families, and expect more tickets than there are tent sites.
 - You will likely run out of tent campsite space. Put left-over families on TENTWAITLIST-<number>
 - Once you are done, save the result including all family details to *Output* including the specific site assignment as column "Assignment".
 
