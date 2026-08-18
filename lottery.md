@@ -4,7 +4,7 @@ This describes steps to follow for the AVS camping lottery for assigning campsit
 *Inputs:*
 - Signups: An input sheet of signups which include names of signups, their campsite preferences, first submitted timestamp, number of attendees and any other relevant details. 
 - Campsites: A sheet describing the campsites available. This sheet indicates the number of campsites of each type, and where known the maximum occupancy of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* in assignments.md for the expected columns.
-- Directory: A directory of all families that can be used to cross reference against signups.
+- Directory: A directory of all families that can be used to cross reference against signups. By default, use the AVS parent directory on the web at https://portals.veracross.com/avs/parent/directory/households. It requires a login, so handle that in the Prep step below. A directory may also be supplied as a sheet or file instead, which takes precedence over the default.
 - Output: A path to a sheet or some other file to place the output.
 
 
@@ -18,7 +18,7 @@ This describes steps to follow for the AVS camping lottery for assigning campsit
 
 *Procedure*:
 Follow the procedure as follows. 
-- Prep: Frontload loading and accessing the associated inputs. Inputs may be websites requiring login, so frontload that login process.
+- Prep: Frontload loading and accessing the associated inputs. Inputs may be websites requiring login, so frontload that login process. This includes logging in to the web *Directory* and confirming the household listings are reachable before starting the lottery.
 - Load: Load the directory, and cross reference signups against families. 
   - Bias toward exact matches and then use fuzzier matches after that for those who signed up with shortened versions of their names. 
   - Flag cases where a family may have signed up more than once (either the same parent, or all parents).
