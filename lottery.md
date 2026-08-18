@@ -21,8 +21,7 @@ Follow the procedure as follows.
 - Prep: Frontload loading and accessing the associated inputs. Inputs may be websites requiring login, so frontload that login process. This includes logging in to the web *Directory* and confirming the household listings are reachable before starting the lottery.
 - Load: Load the directory, and cross reference signups against families. 
   - Bias toward exact matches and then use fuzzier matches after that for those who signed up with shortened versions of their names. 
-  - Flag cases where a family may have signed up more than once (either the same parent, or all parents).
-    - De-duplicate by default: collapse those to a single entry per family before running the lottery, so a family only ever gets one *Code* and one assignment. Keep the earliest submitted timestamp, merge the details, and prefer the most complete or most recent set of preferences. Note the de-duplication and any conflicting preferences in *Notes*.
+  - Auto de-dupe where possible: automatically detect signups that belong to the same family — same directory household, same email address, or the same/other parent of an already-matched household — and collapse them to a single entry per family before running the lottery, so a family only ever gets one *Code* and one assignment. Keep the earliest submitted timestamp, merge the details, and prefer the most complete or most recent set of preferences. Note the de-duplication and any conflicting preferences in *Notes*. Only flag for manual follow-up the cases that cannot be resolved automatically.
   - Load information on the names of children, their grades, and the parent emails
   - Signups with no match in the directory are still included in the lottery, flagged in *Notes* for follow-up.
 - Lottery: Run the lottery itself. The algorithm is described in a separate section below under *Lottery Algorithm*.
@@ -32,6 +31,7 @@ Follow the procedure as follows.
   - Based on the family's preferences from first to last: 
     - If that site type is a Tent type, add the family to group *A*. 
     - Else, If that site type is available and its maximum occupancy fits the family's number of attendees, assign that type to that family. Note: We are not assigning specific sites, only the site _types_. Keep track of how many sites of that type are left as you are assigning.
+      - Site types are tracked by the `section` values in the Campsites sheet. Where one lodging option on the signup form maps to more than one section (e.g. two sections both holding that cabin style), keep a per-section count and fill one section before starting the next, so the *Site Type* written out is always a single section name.
     - Else, (if that site type is not available, or is too small for the party) go on to the next site type and try assigning that.
     - If you have run out of site types, the two following steps are independent and both apply: 
       - Record a cabin waitlist position in the *Cabin Waitlist* column, as CABINWAITLIST-<number>, numbering from 1 in the order families are processed. Every family that didn't win a cabin gets a position -- there is no cap on the waitlist. Do not put the waitlist position in *Site Type* -- a waitlisted family keeps their waitlist position even if they also get a tent site below, so that they can be upgraded if a cabin frees up. On a re-run, renumber waitlist positions from scratch for families that are not *Locked*.
@@ -45,6 +45,7 @@ Follow the procedure as follows.
 - Output: Save everything to the specified output file. Include site type assignments, and the family details including children names and their associated grades. Use the following columns for the output:
    Parent X Name, Parent X Email, Parent Y Name, Parent Y Email, Code, Site Type, Cabin Waitlist, Locked, Attendees, Signup Timestamp, Notes, Children
   - Children is a single column holding any number of children as pipe separated Name:Grade pairs, ordered youngest grade first, e.g. `Ada Siva:2|Ravi Siva:4`. This keeps the column set fixed no matter how many children a family has. Use `K` for kindergarten and `TK` for transitional kindergarten, and leave the grade empty after the colon if it is unknown, e.g. `Sam Lee:`. If a child's name contains a colon or pipe, strip it.
+  - Site Type holds the `section` name from the Campsites sheet (e.g. `Stumptown`, `Fish Camp`, `VWs`), not the signup form's lodging label, so it can be matched directly against campsites in the assignment stage. Tent families are the exception: they get the TENT-<number> ordering ticket described above.
   - Code holds the lottery code from the *Lottery Algorithm* below and must always be written out, since re-runs depend on reading it back.
   - Attendees is the number of people in the family's party. It is carried through to the assignment stage, where it bounds how many families share a tent site.
   - Locked is empty by default and set once a family has been notified of their assignment. Leave any existing value untouched.
