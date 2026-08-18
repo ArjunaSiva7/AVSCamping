@@ -10,7 +10,7 @@ This describes steps to follow for the AVS camping lottery for assigning campsit
 
 *Tips*:
 - As you do your work, save your updates to the output file as it progresses. This allows tweaking and adjusting the process.
-- Note: The lottery may have been run before, in which case preserve existing fields and lottery assignments and fill in for families that haven't gotten through the procedure yet. 
+- Note: The lottery may have been run before, in which case preserve existing fields, lottery *Codes*. Fill in for families that haven't gotten through the procedure yet and you may have to re-do lottery assignments as new codes may bump families already assigned. 
 
 
 *Procedure*:
