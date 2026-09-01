@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import math
 import os
 import re
@@ -400,6 +401,153 @@ def draw_map(base, boxes, fonts, opts):
 
 
 # --------------------------------------------------------------------------
+# PDF output
+#
+# Written by hand rather than via a PDF library, to keep Pillow the only
+# dependency. The map goes in as a JPEG; the boxes are vectors and the labels
+# are real Helvetica text, so the result is searchable and selectable.
+# --------------------------------------------------------------------------
+
+PDF_FONT_RESOURCE = {"family": b"/F1", "children": b"/F1", "header": b"/F2"}
+
+
+def pdf_text(text):
+    """Escape a string for a PDF literal, in WinAnsi (cp1252) bytes."""
+    data = text.encode("cp1252", "replace")
+    for ch in (b"\\", b"(", b")"):
+        data = data.replace(ch, b"\\" + ch)
+    return data
+
+
+def n(value):
+    return b"%.3f" % value
+
+
+class PdfWriter:
+    """The smallest indirect-object/xref writer that produces a valid PDF."""
+
+    def __init__(self):
+        self.objects = [None]  # object numbers are 1-based
+
+    def add(self, body):
+        self.objects.append(body)
+        return len(self.objects) - 1
+
+    def add_stream(self, entries, data):
+        return self.add(b"<< " + entries + b" /Length %d >>\nstream\n" % len(data)
+                        + data + b"\nendstream")
+
+    def save(self, path):
+        out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = []
+        for number, body in enumerate(self.objects[1:], start=1):
+            offsets.append(len(out))
+            out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+        xref = len(out)
+        out += b"xref\n0 %d\n0000000000 65535 f \n" % len(self.objects)
+        for offset in offsets:
+            out += b"%010d 00000 n \n" % offset
+        out += (b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
+                % (len(self.objects), xref))
+        with open(path, "wb") as fh:
+            fh.write(bytes(out))
+
+
+def pdf_circle(cx, cy, r):
+    """A filled circle, as the usual four Bezier arcs."""
+    k = 0.55228 * r
+    return b" ".join([
+        n(cx + r), n(cy), b"m",
+        n(cx + r), n(cy + k), n(cx + k), n(cy + r), n(cx), n(cy + r), b"c",
+        n(cx - k), n(cy + r), n(cx - r), n(cy + k), n(cx - r), n(cy), b"c",
+        n(cx - r), n(cy - k), n(cx - k), n(cy - r), n(cx), n(cy - r), b"c",
+        n(cx + k), n(cy - r), n(cx + r), n(cy - k), n(cx + r), n(cy), b"c", b"f\n"])
+
+
+def rgb(color, stroke=False):
+    r, g, b = (c / 255.0 for c in color)
+    return b"%s %s %s %s\n" % (n(r), n(g), n(b), b"RG" if stroke else b"rg")
+
+
+def render_pdf(base, boxes, fonts, opts, path):
+    """Write the map plus vector boxes and live text to a PDF."""
+    width, height = base.size
+    scale = (opts.pdf_page_width * 72.0 / width if opts.pdf_page_width
+             else 1.0 / opts.ui_scale)
+    page_w, page_h = width * scale, height * scale
+
+    def sx(x):
+        return x * scale
+
+    def sy(y):
+        return (height - y) * scale  # PDF's origin is bottom-left
+
+    ascents = {kind: font.getmetrics()[0] for kind, font in fonts.items()}
+    colors = {"header": opts.header_color, "family": opts.text_color,
+              "children": opts.children_color}
+
+    body = bytearray()
+    body += b"q %s 0 0 %s 0 0 cm /Im0 Do Q\n" % (n(page_w), n(page_h))
+
+    body += rgb(opts.leader_color, stroke=True)
+    body += b"%s w\n" % n(max(0.1, opts.leader_width * scale))
+    for px, py, rect, _, _, _ in boxes:
+        ax, ay = anchor_point(px, py, rect)
+        body += b"%s %s m %s %s l S\n" % (n(sx(px)), n(sy(py)), n(sx(ax)), n(sy(ay)))
+
+    for px, py, rect, lines, heights, gaps in boxes:
+        x, y, w, h = rect
+        body += b"q /GS1 gs\n"
+        body += rgb(opts.box_fill) + rgb(opts.border_color, stroke=True)
+        body += b"%s w\n" % n(max(0.1, opts.border_width * scale))
+        body += b"%s %s %s %s re B\nQ\n" % (n(sx(x)), n(sy(y + h)),
+                                             n(w * scale), n(h * scale))
+        cursor = y + opts.padding
+        for (text, kind, _), line_h, gap in zip(lines, heights, gaps):
+            if gap:
+                mid = cursor + gap / 2.0
+                body += rgb(opts.separator_color, stroke=True)
+                body += b"%s w\n" % n(max(0.1, opts.border_width * scale / 2))
+                body += b"%s %s m %s %s l S\n" % (n(sx(x + opts.padding)), n(sy(mid)),
+                                                  n(sx(x + w - opts.padding)), n(sy(mid)))
+                cursor += gap
+            size = opts.font_size * (0.92 if kind == "children" else 1.0) * scale
+            body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
+                PDF_FONT_RESOURCE[kind], n(size), rgb(colors[kind]),
+                n(sx(x + opts.padding)), n(sy(cursor + ascents[kind])), pdf_text(text))
+            cursor += line_h
+
+    if opts.dot_radius > 0:
+        body += rgb(opts.dot_color)
+        for px, py, _, _, _, _ in boxes:
+            body += pdf_circle(sx(px), sy(py), opts.dot_radius * scale)
+
+    jpeg = io.BytesIO()
+    base.convert("RGB").save(jpeg, "JPEG", quality=opts.pdf_quality, optimize=True)
+    jpeg = jpeg.getvalue()
+
+    pdf = PdfWriter()
+    catalog = pdf.add(b"<< /Type /Catalog /Pages 2 0 R >>")
+    pages = pdf.add(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    page = pdf.add(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
+                   b"/Resources << /XObject << /Im0 5 0 R >> "
+                   b"/Font << /F1 6 0 R /F2 7 0 R >> "
+                   b"/ExtGState << /GS1 8 0 R >> >> /Contents 4 0 R >>"
+                   % (n(page_w), n(page_h)))
+    pdf.add_stream(b"", bytes(body))
+    pdf.add_stream(b"/Type /XObject /Subtype /Image /Width %d /Height %d "
+                   b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
+                   % (width, height), jpeg)
+    for face in (b"/Helvetica", b"/Helvetica-Bold"):
+        pdf.add(b"<< /Type /Font /Subtype /Type1 /BaseFont %s "
+                b"/Encoding /WinAnsiEncoding >>" % face)
+    pdf.add(b"<< /Type /ExtGState /ca %s /CA 1 >>" % n(opts.box_alpha / 255.0))
+    assert (catalog, pages, page) == (1, 2, 3), "object numbers are referenced by hand"
+    pdf.save(path)
+    return page_w / 72.0, page_h / 72.0
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -418,7 +566,9 @@ def build_parser():
     p.add_argument("--campsites", required=True, help="campsites CSV (site id + map location)")
     p.add_argument("--map", required=True, dest="map_path", help="campground map image")
     p.add_argument("--assignments", required=True, help="assignments CSV")
-    p.add_argument("--out", required=True, help="output image path")
+    p.add_argument("--out", required=True,
+                   help="output path; a .pdf extension writes a searchable PDF "
+                        "(real text, vector boxes), anything else writes an image")
 
     g = p.add_argument_group("input columns")
     g.add_argument("--coords", choices=("auto", "pct", "norm", "px"), default="auto",
@@ -471,6 +621,13 @@ def build_parser():
     g.add_argument("--leader-width", type=float)
     g.add_argument("--dot-color", type=parse_color, default=(178, 34, 34))
     g.add_argument("--dot-radius", type=float)
+
+    g = p.add_argument_group("pdf output")
+    g.add_argument("--pdf-page-width", type=float,
+                   help="page width in inches (default: sized so labels come out at "
+                        "roughly --font-size points, whatever the map's resolution)")
+    g.add_argument("--pdf-quality", type=int, default=85,
+                   help="JPEG quality of the map inside the PDF [%(default)s]")
 
     g = p.add_argument_group("reporting")
     g.add_argument("--unplaced-out",
@@ -565,15 +722,20 @@ def main(argv=None):
         placed.append(rect)
         boxes.append((px, py, rect, lines, heights, gaps))
 
-    out = draw_map(base, boxes, fonts, opts)
-    if opts.out.lower().endswith((".jpg", ".jpeg")):
-        out.convert("RGB").save(opts.out, quality=92)
+    if opts.out.lower().endswith(".pdf"):
+        page = render_pdf(base, boxes, fonts, opts, opts.out)
+        written = "  (%.1f x %.1f in, searchable text)" % page
     else:
-        out.save(opts.out)
+        out = draw_map(base, boxes, fonts, opts)
+        if opts.out.lower().endswith((".jpg", ".jpeg")):
+            out.convert("RGB").save(opts.out, quality=92)
+        else:
+            out.save(opts.out)
+        written = ""
 
     residual = sum(overlap_area(a, b) for i, a in enumerate(placed) for b in placed[i + 1:])
-    print("drew       %d box(es) -> %s%s"
-          % (len(boxes), opts.out,
+    print("drew       %d box(es) -> %s%s%s"
+          % (len(boxes), opts.out, written,
              "" if residual == 0 else "  (%.2f%% of box area still overlaps)"
              % (100.0 * residual / max(1.0, sum(w * h for _, _, w, h in placed)))))
 

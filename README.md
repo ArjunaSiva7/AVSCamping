@@ -20,12 +20,17 @@ python3 plot_assignments.py \
     --campsites River-Bend-campsites-2026.csv \
     --map River-Bend-Map-2026-8x.png \
     --assignments assignments.csv \
-    --out River-Bend-assignments-2026.png \
+    --out River-Bend-assignments-2026.pdf \
     --margin 1200 --unplaced-out unplaced.csv
 ```
 
 Needs Pillow, and nothing else. Notes:
 
+- A `.pdf` output is **searchable** — the map goes in as an image, but the boxes are vectors
+  and the labels are real text, so a family can ctrl-F for their own name instead of squinting
+  at the map. Any other extension writes a flat image. `--pdf-page-width` sets the page size in
+  inches; by default the page is sized so labels land at roughly `--font-size` points, whatever
+  the map image's resolution.
 - It prefers the campsites sheet's `x_percent`/`y_percent` over `x_pixels`/`y_pixels`, so the
   same sheet works against a rescaled map image. `--coords` overrides the guess.
 - `--margin` pads blank space around the map for boxes to spill into. On a crowded map this is
