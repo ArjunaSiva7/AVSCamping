@@ -2,7 +2,7 @@
 
 Procedures for running the AVS camping trip campsite lottery and campsite assignments.
 
-The files here are specs written to be executed by an agent (or followed by hand). They are not code; there is nothing to build or run in this repo. Trip-specific data lives in a separate per-trip repo.
+The two stage files here are specs written to be executed by an agent (or followed by hand) rather than code. The one exception is [plot_assignments.py](plot_assignments.py), a helper for the last step. Trip-specific data lives in a separate per-trip repo.
 
 ## The two stages
 
@@ -10,6 +10,30 @@ Run them in order — the second consumes the output of the first.
 
 1. **[lottery.md](lottery.md)** — assigns each family a site *type* (a cabin/glamping type, a tent ticket, or a cabin waitlist position). This is where the random lottery *Code* is drawn and where fairness rules live.
 2. **[assignments.md](assignments.md)** — assigns each family a *specific* campsite within their type, grouping families by children's grades and honouring adjacency requests.
+
+Then, to see the result: **[plot_assignments.py](plot_assignments.py)** draws the finished
+assignments onto the campground map, one box per campsite listing each family on that site
+with their children and grades.
+
+```bash
+python3 plot_assignments.py \
+    --campsites River-Bend-campsites-2026.csv \
+    --map River-Bend-Map-2026-8x.png \
+    --assignments assignments.csv \
+    --out River-Bend-assignments-2026.png \
+    --margin 1200 --unplaced-out unplaced.csv
+```
+
+Needs Pillow, and nothing else. Notes:
+
+- It prefers the campsites sheet's `x_percent`/`y_percent` over `x_pixels`/`y_pixels`, so the
+  same sheet works against a rescaled map image. `--coords` overrides the guess.
+- `--margin` pads blank space around the map for boxes to spill into. On a crowded map this is
+  the difference between overlapping boxes and none; the trade-off is a larger output image.
+- Anyone it cannot place — tent waitlist tickets, or a site missing from the campsites sheet —
+  is reported on stderr and, with `--unplaced-out`, written to a CSV. Check that list: a site
+  that has gone missing shows up here rather than being silently dropped.
+- `--help` lists the styling and layout knobs (fonts, colours, wrapping, box placement).
 
 ## Inputs
 
