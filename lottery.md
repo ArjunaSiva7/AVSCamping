@@ -59,5 +59,6 @@ The algorithm here describes how to generate a *Code* and is described as follow
 The lottery is based on a 24 letter code. Based on an alphabetic sort, the higher the code, the more likely a family has gotten their preferences.
 - Codes are 24 characters drawn uniformly from the uppercase alphabet A-Z, and are compared with a plain case-sensitive sort.
 - For each family, randomly assign a code with one caveat: Families will have indicated whether they wanted a cabin last year and didn't get one. For those, draw two codes and keep the higher of the two. That gives a boosted family a 2 in 3 chance of outranking any given unboosted family, i.e. roughly 50% better odds.
+- Families listed in *Special Assignments* (e.g. paid via fundraiser for a guaranteed cabin) are set to the highest possible code (ZZZZ..., then ZZZ...Y for a second special family, and so on) so they win their first choice. The occupancy check is waived for them — a special family may plan to split between the cabin and a tent — and the reason is recorded in *Notes*. This supersedes the never-regenerate rule for their existing code.
 - Using a 24 letter code should have no collisions but just in case, re-generate a new code in case there's a collision.
 - Use a recorded random seed so the draw can be reproduced, and generate codes only for families that don't already have one.
