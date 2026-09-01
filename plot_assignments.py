@@ -26,7 +26,7 @@ import sys
 import textwrap
 from collections import OrderedDict
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # Candidate columns, tried in order, matched case/punctuation insensitively.
 # Percent/normalized coordinates come first: they survive a rescaled map image,
@@ -64,6 +64,9 @@ SCALED_DEFAULTS = {
     "dot_radius": 2.5,
     "box_gap": 6.0,       # between boxes stacked in a gutter
     "gutter_gap": 16.0,   # between the map edge and its gutter
+    "halo_width": 3.0,    # white casing under a leader, so it reads over map art
+    "shadow_offset": 2.0,
+    "shadow_blur": 3.0,
 }
 
 
@@ -360,6 +363,29 @@ def anchor_point(px, py, rect):
     return min(max(px, x), x + w), min(max(py, y), y + h)
 
 
+def leader_points(px, py, rect, opts):
+    """The polyline from a box to its campsite.
+
+    An elbow leaves the box horizontally, turns once, and arrives at the
+    campsite horizontally, so nothing on the page runs at a stray angle.
+    """
+    x, y, w, h = rect
+    if opts.line_style == "straight":
+        return [anchor_point(px, py, rect), (px, py)]
+
+    start_y = min(max(py, y + opts.padding), y + h - opts.padding)
+    if px >= x + w:
+        start_x = x + w
+    elif px <= x:
+        start_x = x
+    else:
+        # Campsite sits under the box; a horizontal elbow has nowhere to go.
+        return [anchor_point(px, py, rect), (px, py)]
+
+    turn = start_x + (px - start_x) * min(max(opts.elbow_at, 0.0), 1.0)
+    return [(start_x, start_y), (turn, start_y), (turn, py), (px, py)]
+
+
 # --------------------------------------------------------------------------
 # Layouts
 # --------------------------------------------------------------------------
@@ -475,12 +501,31 @@ def draw_map(base, boxes, fonts, opts):
     draw = ImageDraw.Draw(overlay)
     colors = {"header": opts.header_color, "family": opts.text_color,
               "children": opts.children_color}
+    leader_w = max(1, int(round(opts.leader_width)))
+    routes = [(leader_points(px, py, rect, opts))
+              for px, py, rect, _, _, _ in boxes]
+
+    if opts.shadow:
+        shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        pen = ImageDraw.Draw(shadow)
+        off = opts.shadow_offset
+        for x, y, w, h in (rect for _, _, rect, _, _, _ in boxes):
+            pen.rectangle((x + off, y + off, x + w + off, y + h + off),
+                          fill=(0, 0, 0, 90))
+        overlay = Image.alpha_composite(
+            overlay, shadow.filter(ImageFilter.GaussianBlur(opts.shadow_blur)))
+        draw = ImageDraw.Draw(overlay)
 
     # Every leader first, so a line never appears to stop at an unrelated box.
-    for px, py, rect, _, _, _ in boxes:
-        ax, ay = anchor_point(px, py, rect)
-        draw.line((px, py, ax, ay), fill=opts.leader_color + (255,),
-                  width=max(1, int(round(opts.leader_width))))
+    if opts.shadow and opts.halo_width > 0:
+        for route in routes:  # white casing, so a leader stays legible over map art
+            draw.line([c for point in route for c in point],
+                      fill=opts.halo_color + (255,),
+                      width=leader_w + max(1, int(round(opts.halo_width))),
+                      joint="curve")
+    for route in routes:
+        draw.line([c for point in route for c in point],
+                  fill=opts.leader_color + (255,), width=leader_w, joint="curve")
 
     for px, py, rect, lines, heights, gaps in boxes:
         x, y, w, h = rect
@@ -596,12 +641,36 @@ def render_pdf(base, boxes, fonts, opts, path):
 
     body = bytearray()
     body += b"q %s 0 0 %s 0 0 cm /Im0 Do Q\n" % (n(page_w), n(page_h))
+    body += b"1 J 1 j\n"  # round caps and joins, so elbows do not look chipped
 
+    def polyline(route):
+        out = b"%s %s m " % (n(sx(route[0][0])), n(sy(route[0][1])))
+        for x, y in route[1:]:
+            out += b"%s %s l " % (n(sx(x)), n(sy(y)))
+        return out + b"S\n"
+
+    # A PDF has no blur, so the drop shadow is a few stacked translucent rects.
+    if opts.shadow:
+        body += b"q /GS2 gs " + rgb((0, 0, 0))
+        for _, _, (x, y, w, h), _, _, _ in boxes:
+            for step in (0.0, 0.5, 1.0):
+                grow = opts.shadow_blur * step
+                ox, oy = opts.shadow_offset, opts.shadow_offset
+                body += b"%s %s %s %s re f\n" % (
+                    n(sx(x + ox - grow)), n(sy(y + h + oy + grow)),
+                    n((w + 2 * grow) * scale), n((h + 2 * grow) * scale))
+        body += b"Q\n"
+
+    routes = [leader_points(px, py, rect, opts) for px, py, rect, _, _, _ in boxes]
+    if opts.shadow and opts.halo_width > 0:
+        body += rgb(opts.halo_color, stroke=True)
+        body += b"%s w\n" % n(max(0.1, (opts.leader_width + opts.halo_width) * scale))
+        for route in routes:
+            body += polyline(route)
     body += rgb(opts.leader_color, stroke=True)
     body += b"%s w\n" % n(max(0.1, opts.leader_width * scale))
-    for px, py, rect, _, _, _ in boxes:
-        ax, ay = anchor_point(px, py, rect)
-        body += b"%s %s m %s %s l S\n" % (n(sx(px)), n(sy(py)), n(sx(ax)), n(sy(ay)))
+    for route in routes:
+        body += polyline(route)
 
     for px, py, rect, lines, heights, gaps in boxes:
         x, y, w, h = rect
@@ -640,7 +709,7 @@ def render_pdf(base, boxes, fonts, opts, path):
     page = pdf.add(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
                    b"/Resources << /XObject << /Im0 5 0 R >> "
                    b"/Font << /F1 6 0 R /F2 7 0 R >> "
-                   b"/ExtGState << /GS1 8 0 R >> >> /Contents 4 0 R >>"
+                   b"/ExtGState << /GS1 8 0 R /GS2 9 0 R >> >> /Contents 4 0 R >>"
                    % (n(page_w), n(page_h)))
     pdf.add_stream(b"", bytes(body))
     pdf.add_stream(b"/Type /XObject /Subtype /Image /Width %d /Height %d "
@@ -650,6 +719,7 @@ def render_pdf(base, boxes, fonts, opts, path):
         pdf.add(b"<< /Type /Font /Subtype /Type1 /BaseFont %s "
                 b"/Encoding /WinAnsiEncoding >>" % face)
     pdf.add(b"<< /Type /ExtGState /ca %s /CA 1 >>" % n(opts.box_alpha / 255.0))
+    pdf.add(b"<< /Type /ExtGState /ca 0.10 /CA 0.10 >>")  # drop shadow
     assert (catalog, pages, page) == (1, 2, 3), "object numbers are referenced by hand"
     pdf.save(path)
     return page_w / 72.0, page_h / 72.0
@@ -728,6 +798,18 @@ def build_parser():
                         "under --layout map); under --layout map this is also the space "
                         "boxes may spill into")
     g.add_argument("--margin-color", type=parse_color, default=(255, 255, 255))
+    g.add_argument("--line-style", choices=("elbow", "straight"), default="elbow",
+                   help="'elbow' joins a box to its campsite with right-angle segments; "
+                        "'straight' draws one diagonal [%(default)s]")
+    g.add_argument("--elbow-at", type=float, default=0.1,
+                   help="where an elbow turns, as a fraction of the way from the box to "
+                        "the campsite. Low values keep the turns in a band beside the "
+                        "gutter and let each leader run in to its campsite dead-on; "
+                        "turning mid-map instead litters the map with verticals "
+                        "[%(default)s]")
+    g.add_argument("--no-shadow", dest="shadow", action="store_false",
+                   help="drop the shadow under each box and the white casing that keeps "
+                        "leaders legible where they cross the map")
     g.add_argument("--no-site-header", dest="site_header", action="store_false",
                    help="omit the site id line at the top of each box")
     g.add_argument("--no-children", dest="show_children", action="store_false",
@@ -744,6 +826,12 @@ def build_parser():
     g.add_argument("--separator-color", type=parse_color, default=(195, 195, 195))
     g.add_argument("--leader-color", type=parse_color, default=(178, 34, 34))
     g.add_argument("--leader-width", type=float)
+    g.add_argument("--halo-width", type=float,
+                   help="width of the casing drawn under each leader, on top of "
+                        "--leader-width")
+    g.add_argument("--halo-color", type=parse_color, default=(255, 255, 255))
+    g.add_argument("--shadow-offset", type=float)
+    g.add_argument("--shadow-blur", type=float)
     g.add_argument("--dot-color", type=parse_color, default=(178, 34, 34))
     g.add_argument("--dot-radius", type=float)
 
