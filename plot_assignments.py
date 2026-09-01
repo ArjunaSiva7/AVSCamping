@@ -54,14 +54,16 @@ BOLD_FONT_CANDIDATES = (
 
 # Defaults expressed against a 1000px-tall map; scaled by --ui-scale.
 SCALED_DEFAULTS = {
-    "font_size": 12.0,
-    "offset": 22.0,
-    "padding": 7.0,
-    "line_gap": 3.0,
-    "family_gap": 7.0,
-    "border_width": 2.0,
-    "leader_width": 2.0,
-    "dot_radius": 4.0,
+    "font_size": 6.0,
+    "offset": 22.0,       # gap to the campsite, --layout map only
+    "padding": 3.5,
+    "line_gap": 1.5,
+    "family_gap": 3.5,
+    "border_width": 1.0,
+    "leader_width": 1.0,
+    "dot_radius": 2.5,
+    "box_gap": 6.0,       # between boxes stacked in a gutter
+    "gutter_gap": 16.0,   # between the map edge and its gutter
 }
 
 
@@ -359,6 +361,112 @@ def anchor_point(px, py, rect):
 
 
 # --------------------------------------------------------------------------
+# Layouts
+# --------------------------------------------------------------------------
+
+def stack_column(items, top, bottom, gap):
+    """Stack boxes down one gutter, each as near its campsite's height as it
+    can get without colliding with its neighbours."""
+    items = sorted(items, key=lambda b: b["desired"])
+    cursor = top
+    for box in items:
+        box["y"] = max(box["desired"], cursor)
+        cursor = box["y"] + box["h"] + gap
+    # Ran past the bottom: walk back up, then down again to undo any negatives.
+    if items and cursor - gap > bottom:
+        cursor = bottom
+        for box in reversed(items):
+            box["y"] = min(box["y"], cursor - box["h"])
+            cursor = box["y"] - gap
+        cursor = top
+        for box in items:
+            box["y"] = max(box["y"], cursor)
+            cursor = box["y"] + box["h"] + gap
+    return items
+
+
+def layout_gutter(base, blocks, opts):
+    """Park every box in a column down the left or right margin, and grow the
+    canvas until the columns fit. Nothing is drawn over the map itself."""
+    map_w, map_h = base.size
+    margin, gap, gutter = max(0.0, opts.margin), opts.box_gap, opts.gutter_gap
+
+    # Which gutter a box goes in. Splitting on the map's midline keeps every
+    # leader on its own side; balancing on height instead keeps the canvas
+    # shorter, at the cost of leaders that cross the map.
+    ordered = sorted(blocks, key=lambda b: b["px"])
+    if opts.gutter_split == "balanced":
+        half = sum(b["h"] + gap for b in ordered) / 2.0
+        left, right, running = [], [], 0.0
+        for box in ordered:
+            if running + (box["h"] + gap) / 2.0 <= half:
+                left.append(box)
+                running += box["h"] + gap
+            else:
+                right.append(box)
+    else:
+        middle = map_w / 2.0
+        left = [b for b in ordered if b["px"] < middle]
+        right = [b for b in ordered if b["px"] >= middle]
+
+    def column_height(items):
+        return sum(b["h"] for b in items) + gap * max(0, len(items) - 1)
+
+    canvas_h = max(map_h, column_height(left), column_height(right)) + 2 * margin
+    left_w = max([b["w"] for b in left], default=0.0) + (gutter if left else 0.0)
+    right_w = max([b["w"] for b in right], default=0.0) + (gutter if right else 0.0)
+    canvas_w = margin + left_w + map_w + right_w + margin
+    map_x = margin + left_w
+    map_y = margin + (canvas_h - 2 * margin - map_h) / 2.0
+
+    canvas = Image.new("RGBA", (int(round(canvas_w)), int(round(canvas_h))),
+                       opts.margin_color + (255,))
+    canvas.paste(base, (int(round(map_x)), int(round(map_y))))
+
+    boxes = []
+    span = canvas_h - 2 * margin
+    for items, side in ((left, "left"), (right, "right")):
+        for box in items:
+            box["px"] += map_x
+            box["py"] += map_y
+            # Position by where the campsite sits down the map, stretched over the
+            # whole column. Keeps the leaders in order and stops them fanning.
+            frac = (box["py"] - map_y) / map_h if map_h else 0.5
+            box["desired"] = margin + frac * max(0.0, span - box["h"])
+        for box in stack_column(items, margin, canvas_h - margin, gap):
+            x = (map_x - gutter - box["w"]) if side == "left" else map_x + map_w + gutter
+            boxes.append((box["px"], box["py"], (x, box["y"], box["w"], box["h"]),
+                          box["lines"], box["heights"], box["gaps"]))
+    return canvas, boxes, "%d left / %d right" % (len(left), len(right))
+
+
+def layout_on_map(base, blocks, points, opts):
+    """Sit each box beside its campsite, nudged around to avoid collisions."""
+    margin = max(0.0, opts.margin)
+    if margin:
+        canvas = Image.new("RGBA", (int(round(base.width + 2 * margin)),
+                                    int(round(base.height + 2 * margin))),
+                           opts.margin_color + (255,))
+        canvas.paste(base, (int(round(margin)), int(round(margin))))
+        base = canvas
+        for box in blocks:
+            box["px"] += margin
+            box["py"] += margin
+        points = [(x + margin, y + margin) for x, y in points]
+
+    edge = max(2.0, opts.border_width)
+    bounds = (edge, edge, base.width - edge, base.height - edge)
+    placed, boxes = [], []
+    # Biggest boxes claim space first; they are the hardest to fit later.
+    for box in sorted(blocks, key=lambda b: -(b["w"] * b["h"])):
+        rect = choose_position(box["px"], box["py"], box["w"], box["h"],
+                               placed, points, bounds, opts)
+        placed.append(rect)
+        boxes.append((box["px"], box["py"], rect, box["lines"], box["heights"], box["gaps"]))
+    return base, boxes, "beside each campsite"
+
+
+# --------------------------------------------------------------------------
 # Drawing
 # --------------------------------------------------------------------------
 
@@ -588,20 +696,37 @@ def build_parser():
     g.add_argument("--wrap", type=int, default=40,
                    help="wrap text at this many characters (0 disables) [%(default)s]")
     g.add_argument("--offset", type=float, help="pixels between the campsite and its box")
+    g.add_argument("--layout", choices=("gutter", "map"), default="gutter",
+                   help="'gutter' stacks the boxes in margins down the far left and "
+                        "far right, leaving the map itself clear, and grows the canvas "
+                        "until they fit; 'map' sits each box beside its campsite "
+                        "[%(default)s]")
+    g.add_argument("--box-gap", type=float,
+                   help="vertical gap between boxes stacked in a gutter")
+    g.add_argument("--gutter-gap", type=float,
+                   help="gap between the edge of the map and its gutter of boxes")
+    g.add_argument("--gutter-split", choices=("balanced", "side"), default="balanced",
+                   help="'balanced' evens out the two column heights, keeping the "
+                        "canvas short; 'side' sends each box to the gutter its "
+                        "campsite is nearest, so no leader crosses the map - only "
+                        "worth it when the campsites are spread evenly [%(default)s]")
     g.add_argument("--side", choices=("auto", "right", "left", "above", "below"),
-                   default="auto", help="which side of the campsite the box sits on")
+                   default="auto",
+                   help="which side of the campsite the box sits on (--layout map)")
     g.add_argument("--padding", type=float, help="padding inside the box")
     g.add_argument("--line-gap", type=float, help="extra pixels between lines")
     g.add_argument("--family-gap", type=float, help="extra pixels between families in a box")
     g.add_argument("--no-declutter", dest="declutter", action="store_false",
-                   help="do not nudge boxes apart to avoid overlaps")
+                   help="do not nudge boxes apart to avoid overlaps (--layout map)")
     g.add_argument("--declutter-steps", type=int, default=12,
                    help="how far to nudge a box sideways when looking for space [%(default)s]")
     g.add_argument("--declutter-pushes", type=int, default=4, choices=(1, 2, 3, 4),
                    help="how far a box may be pushed away from its site [%(default)s]")
-    g.add_argument("--margin", type=float, default=0,
-                   help="pixels of blank border added around the map, giving edge "
-                        "boxes somewhere to go [%(default)s]")
+    g.add_argument("--margin", type=float,
+                   help="blank border around everything (default: a small border under "
+                        "--layout gutter so nothing sits against the page edge, none "
+                        "under --layout map); under --layout map this is also the space "
+                        "boxes may spill into")
     g.add_argument("--margin-color", type=parse_color, default=(255, 255, 255))
     g.add_argument("--no-site-header", dest="site_header", action="store_false",
                    help="omit the site id line at the top of each box")
@@ -643,6 +768,9 @@ def resolve_scaled(opts, image_size):
     for name, base in SCALED_DEFAULTS.items():
         if getattr(opts, name) is None:
             setattr(opts, name, base * opts.ui_scale)
+    if opts.margin is None:
+        # Gutter boxes would otherwise sit hard against the page edge.
+        opts.margin = opts.gutter_gap if opts.layout == "gutter" else 0.0
     return opts
 
 
@@ -665,22 +793,10 @@ def main(argv=None):
 
     sites, no_coords, coord_desc, _ = load_campsites(
         opts.campsites, map_size, opts.coords, opts.site_col, opts.x_col, opts.y_col)
-
-    margin = max(0.0, opts.margin)
-    if margin:
-        canvas = Image.new("RGBA", (int(round(map_size[0] + 2 * margin)),
-                                    int(round(map_size[1] + 2 * margin))),
-                           opts.margin_color + (255,))
-        canvas.paste(base, (int(round(margin)), int(round(margin))))
-        base = canvas
-        sites = OrderedDict((k, (label, x + margin, y + margin))
-                            for k, (label, x, y) in sites.items())
     by_site, meta = load_assignments(opts.assignments, opts.assignment_col, opts.children_col)
 
-    print("map        %s  %dx%d%s  (ui-scale %.2f, font %.0f)"
-          % (opts.map_path, map_size[0], map_size[1],
-             " + %.0fpx margin" % margin if margin else "",
-             opts.ui_scale, opts.font_size))
+    print("map        %s  %dx%d  (ui-scale %.2f, font %.0f)"
+          % (opts.map_path, map_size[0], map_size[1], opts.ui_scale, opts.font_size))
     print("campsites  %d located from %s" % (len(sites), coord_desc))
     print("families   %d assigned via %r, children from %r, parents from %s"
           % (sum(len(v) for v in by_site.values()), meta["assignment_col"],
@@ -696,31 +812,30 @@ def main(argv=None):
     }
     ruler = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
 
-    # Biggest boxes claim space first; they are the hardest to fit later.
-    pending, unplaced_rows, unplaced_reasons = [], [], []
+    blocks, unplaced_rows, unplaced_reasons = [], [], []
     for key, entries in by_site.items():
         if key in sites:
             label, px, py = sites[key]
             families = [(raw, parents, kids) for raw, parents, kids, _ in entries]
             lines = build_block(label, families, opts)
             box_w, box_h, heights, gaps = measure(ruler, lines, fonts, opts)
-            pending.append((box_w * box_h, px, py, box_w, box_h, lines, heights, gaps))
+            blocks.append({"px": px, "py": py, "w": box_w, "h": box_h,
+                           "lines": lines, "heights": heights, "gaps": gaps})
         else:
             reason = ("site has no coordinates in the campsites CSV"
                       if key in no_coords else "site not found in the campsites CSV")
             for raw, _, _, row in entries:
                 unplaced_rows.append(row)
                 unplaced_reasons.append("%s: %s" % (raw, reason))
-    pending.sort(key=lambda item: -item[0])
 
-    points = [(x, y) for _, x, y in sites.values()]
-    edge = max(2.0, opts.border_width)
-    bounds = (edge, edge, base.width - edge, base.height - edge)
-    placed, boxes = [], []
-    for _, px, py, box_w, box_h, lines, heights, gaps in pending:
-        rect = choose_position(px, py, box_w, box_h, placed, points, bounds, opts)
-        placed.append(rect)
-        boxes.append((px, py, rect, lines, heights, gaps))
+    if opts.layout == "gutter":
+        base, boxes, how = layout_gutter(base, blocks, opts)
+    else:
+        base, boxes, how = layout_on_map(
+            base, blocks, [(x, y) for _, x, y in sites.values()], opts)
+    if (base.width, base.height) != map_size:
+        print("canvas     grown to %dx%d for the boxes (%s)"
+              % (base.width, base.height, how))
 
     if opts.out.lower().endswith(".pdf"):
         page = render_pdf(base, boxes, fonts, opts, opts.out)
@@ -733,6 +848,7 @@ def main(argv=None):
             out.save(opts.out)
         written = ""
 
+    placed = [rect for _, _, rect, _, _, _ in boxes]
     residual = sum(overlap_area(a, b) for i, a in enumerate(placed) for b in placed[i + 1:])
     print("drew       %d box(es) -> %s%s%s"
           % (len(boxes), opts.out, written,

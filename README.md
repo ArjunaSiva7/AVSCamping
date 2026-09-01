@@ -21,10 +21,18 @@ python3 plot_assignments.py \
     --map River-Bend-Map-2026-8x.png \
     --assignments assignments.csv \
     --out River-Bend-assignments-2026.pdf \
-    --margin 1200 --unplaced-out unplaced.csv
+    --unplaced-out unplaced.csv
 ```
 
 Needs Pillow, and nothing else. Notes:
+
+- By default the boxes are stacked in **gutters down the far left and far right**, joined to
+  their campsite by a leader line, so the map itself stays clear. The canvas grows sideways and
+  downwards until every box fits. `--layout map` instead sits each box next to its campsite,
+  which reads better on a sparse map but covers a crowded one.
+- `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
+  side` keeps every leader on its own half of the map, but only makes sense when the campsites
+  are spread evenly — River Bend's cluster on the right, so it produces one 63-box column.
 
 - A `.pdf` output is **searchable** — the map goes in as an image, but the boxes are vectors
   and the labels are real text, so a family can ctrl-F for their own name instead of squinting
