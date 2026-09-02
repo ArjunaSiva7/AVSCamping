@@ -10,7 +10,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 
 
 *Procedure*:
-- Assign families to specific sites using the *Assignment Strategy* below, in two passes: first decide which families share which campsite (*Sharing A Tent Campsite*), then decide where those groups sit on the map (*Keeping Grades Near Each Other*).
+- Assign families to specific sites using the *Assignment Strategy* below, in two passes: first give each grade its own stretch of the map (*Keeping Grades Near Each Other*), then fill that stretch with the grade's families (*Sharing A Tent Campsite*).
 - Leave the "Assignment" column empty for families whose *Site Type* is blank or does not match any campsite `section`: report them rather than guessing a site.
 - Tent site types coming out of the lottery are numbered tickets on the tent section name (Tent Site-1, Tent Site-2, ...) reflecting signup order, not real campsites. Use that order when placing tent families, and expect more tickets than there are tent sites.
 - You will likely run out of tent campsite space. Put left-over families on TENTWAITLIST-<number>
@@ -39,19 +39,19 @@ Every family gets exactly one grouping grade, and that is the only grade used to
 - It is the grade of the family's youngest child, i.e. the lowest grade in *Children*, ordering `TK` < `K` < `1` < `2` < ... So a family with a 2nd grader and a 4th grader groups with the 2nd graders.
 - Ignore children whose grade is empty. A family with no usable grade at all (no children, or all grades blank) forms its own "unknown" group: never fold it into a numbered grade group.
 
+*Keeping Grades Near Each Other*:
+Grades claim their space on the map before any family is seated, so no grade can end up marooned inside another grade's stretch:
+- Order the campsites of a section into a walking order by following `adjacent_sites` (fall back to the map coordinates where adjacency is sparse). This walking order is the only notion of "near" that matters.
+- Cut that walk into one contiguous block of campsites per grouping grade, in ascending grade order, with the unknown grade last. So walking the section you meet every TK campsite, then every K campsite, then every 1st-grade campsite, and so on -- a grade's campsites are never split by another grade's.
+- Size each block by how much room the grade needs: give it a share of the section's total `capacity` proportional to that grade's total attendees, taking whole campsites off the front of the remaining walk. Every grade with families gets at least one campsite.
+- Do not swap or reorder blocks to make the `capacity` fit a grade better, and do not carve a grade's block out of two separate stretches. A grade whose families are too large for the campsites in its block waitlists them (see below) -- that is the correct outcome, and it is what keeps the map readable.
+
 *Sharing A Tent Campsite*:
 Same-grade grouping is a hard rule, not a preference. It outranks packing density:
 - All families sharing one tent campsite must have the same grouping grade. Leaving capacity unused on a tent site is the correct outcome when the only families left to place have a different grouping grade -- do not fill the gap by mixing grades, and do not reorder grades to make a site fit exactly.
-- Walk the tent tickets in lottery order (Tent Site-1, Tent Site-2, ...). For each ticket in turn:
-  - If a tent campsite already opened for that family's grouping grade has room for all its attendees, put the family there. Prefer the site with the least room left that still fits, so the roomier sites stay free for larger families.
-  - Otherwise open an unused tent campsite whose `capacity` fits the family, preferring one adjacent to a campsite already opened for that grouping grade.
-  - If neither is possible, skip the family for now and keep going -- a later, smaller family may still fit the space that is left. Skipped families become the tent waitlist.
-- Tent waitlist: after the walk, number the families that never got a campsite `TENTWAITLIST-1`, `TENTWAITLIST-2`, ... in tent lottery order.
-
-*Keeping Grades Near Each Other*:
-Once you know which families share which campsite, place those groups on the map so a grade's families are neighbours where the site sizes allow:
-- Order the campsites of a section into a walking order by following `adjacent_sites` (fall back to the map coordinates where adjacency is sparse), then lay the groups along that order by ascending grouping grade, with the unknown group last.
-- Grades adjacent in school (1st next to 2nd) are better neighbours than distant ones, so keep the ascending order rather than scattering groups.
-- Sites differ in `capacity`, so a large group may have to sit out of order on a big site. Move only that group, and keep the rest of the sequence in grade order. Never break a group up or mix grades to improve adjacency.
-- For non-tent sections, one family per campsite: order that section's families by grouping grade and lay them along the section's walking order the same way.
-- This step only relabels which campsite a group occupies. It must not change who shares a campsite or who is waitlisted, and it must never move a *Locked* family.
+- Take each grade in turn and walk its tent tickets in lottery order (Tent Site-1, Tent Site-2, ...), seating each family on a campsite from that grade's block only. Prefer the campsite in the block with the least room left that still fits the whole family, so the roomier ones stay free for larger families.
+- If no campsite in the block fits the family, skip it for now and keep going -- a later, smaller family of the same grade may still fit the space that is left. Skipped families become the tent waitlist.
+- Once every grade has been seated, a grade that still has families waiting may take a campsite that its neighbouring grade left completely empty, and only the campsite on the shared edge of the two blocks: an unused campsite is worth more than a perfect split, and moving the edge keeps both blocks contiguous. Repeat while such a move seats someone.
+- Tent waitlist: number the families that never got a campsite `TENTWAITLIST-1`, `TENTWAITLIST-2`, ... in tent lottery order across all grades.
+- For non-tent sections, one family per campsite: seat that section's families inside their grade's block the same way.
+- Never move a *Locked* family: treat its campsite as belonging to its grade's block and seat it there first.
