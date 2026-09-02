@@ -6,6 +6,7 @@ This describes steps to follow to assign families to campsites. The goal here is
   - Children and their grades come from the single *Children* column, holding pipe separated Name:Grade pairs ordered youngest grade first, e.g. `Ada Siva:2|Ravi Siva:4`. Grades may be `K` or `TK`, and a pair may have an empty grade. Parse that column to do the grade based grouping below, and write it back unchanged.
 - Campsites: A sheet describing the campsites available, and adjacency information on which sites are near each other. This sheet indicates the number of campsites of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* below for the expected columns.
 - Output: A path to a sheet or some other file to place the output. By default, use the Families input.
+- Summary Output: A path for the per-campsite summary CSV described in *Per-Campsite Summary* below. By default, write it next to *Output* as `<output name>-sites.csv`.
 - Adjustments: A sheet, list of text, or a combination of tweaks that inform the assignment strategy. This is often used to override the default strategy when a specific family requests to be near another family.
 
 
@@ -15,6 +16,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 - Tent site types coming out of the lottery are numbered tickets on the tent section name (Tent Site-1, Tent Site-2, ...) reflecting signup order, not real campsites. Use that order when placing tent families, and expect more tickets than there are tent sites.
 - You will likely run out of tent campsite space. Put left-over families on TENTWAITLIST-<number>
 - Once you are done, save the result including all family details to *Output* including the specific site assignment as column "Assignment".
+- Then write the per-campsite summary to *Summary Output*, derived from that same result so the two files can never disagree. Regenerate it in full on every run.
 
 *Campsites Schema*:
 The campsite sheet is a CSV, one row per individual campsite, e.g. River-Bend-campsites-2026.csv in the AVSRiverBendFall2026 repo for the 2026 River Bend trip. Expected columns:
@@ -55,3 +57,18 @@ Same-grade grouping is a hard rule, not a preference. It outranks packing densit
 - Tent waitlist: number the families that never got a campsite `TENTWAITLIST-1`, `TENTWAITLIST-2`, ... in tent lottery order across all grades.
 - For non-tent sections, one family per campsite: seat that section's families inside their grade's block the same way.
 - Never move a *Locked* family: treat its campsite as belonging to its grade's block and seat it there first.
+
+*Per-Campsite Summary*:
+A second CSV written to *Summary Output*, one row per campsite, so the trip can be read site by site instead of family by family. Columns:
+- Site: the campsite's `site` value from the Campsites sheet.
+- Section: that campsite's `section`.
+- Grouping Grade: the grouping grade of the families on the site (they all share one, per *Sharing A Tent Campsite*). Empty for an empty campsite; `unknown` for the unknown group.
+- Families: the families on the site, pipe separated. Label each family `Parent X Name & Parent Y Name`, dropping the ` & ...` when there is no second parent, e.g. `Arjuna Siva & Priya Siva|Sam Lee`.
+- Children: the children on the site, pipe separated `Name:Grade` pairs in the same form as the Families input, listed family by family in the same order as *Families*, e.g. `Ada Siva:2|Ravi Siva:4|Mia Lee:2`.
+- Capacity: the campsite's `capacity`. Blank for the single-family sections, which have no capacity in the Campsites sheet.
+- Occupancy: the total *Attendees* of the families on the site. `0` for an empty campsite.
+
+Rules:
+- Every campsite in the Campsites sheet gets a row, including the ones nobody was seated on -- an empty site is the thing a reader most wants to spot. Keep the rows in the walking order used in *Keeping Grades Near Each Other* so the file reads along the map, grade block by grade block.
+- Add a row per tent waitlist ticket at the end, with `TENTWAITLIST-<number>` in *Site*, the section the family was ticketed for in *Section*, blank *Capacity*, and the family's attendees in *Occupancy*. Do the same for families left unassigned because their *Site Type* was blank or unmatched, using an empty *Site*.
+- *Occupancy* must never exceed *Capacity* where a capacity is set, and a row must never hold more than one family where *Capacity* is blank. If either happens, the assignment is wrong -- fix the assignment rather than the summary.

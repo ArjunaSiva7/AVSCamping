@@ -60,6 +60,7 @@ Both specs list their own inputs. The ones that change per trip:
 - **Campsites** — one row per campsite, with section, capacity, and adjacency. See *Campsites Schema* in [assignments.md](assignments.md) for the columns. For the 2026 River Bend trip this is `River-Bend-campsites-2026.csv` in the [AVSRiverBendFall2026](https://github.com/ArjunaSiva7/AVSRiverBendFall2026) repo, alongside the campground map image.
 - **Adjustments** (assignment stage only) — tweaks that override the default strategy, e.g. a family asking to be placed near another family.
 - **Output** — a path to the sheet or file to write to. The lottery's output is the assignment stage's Families input.
+- **Summary Output** (assignment stage only) — where to write the per-campsite summary CSV: one row per campsite with the families and children on it, its capacity, and its occupancy. Defaults to `<output name>-sites.csv`.
 
 ## Things worth knowing before you run it
 
