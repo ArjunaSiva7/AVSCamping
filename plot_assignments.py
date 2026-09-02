@@ -52,6 +52,29 @@ BOLD_FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
 )
 
+# One colour per grade, so a family's children can be picked out by grade at a
+# glance. Ordered TK, K, 1..12; anything unrecognised falls through to the grey.
+# Chosen for separation at small sizes and all dark enough to read on white -
+# no yellows or pale tints.
+GRADE_ORDER = ["TK", "K"] + [str(g) for g in range(1, 13)]
+GRADE_COLORS = [
+    (0, 90, 156),     # TK  steel blue
+    (176, 36, 36),    # K   red
+    (26, 122, 62),    # 1   green
+    (124, 58, 155),   # 2   purple
+    (183, 87, 12),    # 3   orange
+    (14, 118, 130),   # 4   teal
+    (140, 74, 56),    # 5   brown
+    (57, 59, 121),    # 6   navy
+    (168, 44, 116),   # 7   magenta
+    (85, 107, 47),    # 8   olive
+    (132, 60, 57),    # 9   maroon
+    (33, 97, 140),    # 10  slate blue
+    (99, 62, 128),    # 11  plum
+    (110, 84, 32),    # 12  bronze
+]
+UNKNOWN_GRADE_COLOR = (105, 105, 105)
+
 # Defaults expressed against a 1000px-tall map; scaled by --ui-scale.
 SCALED_DEFAULTS = {
     "font_size": 6.0,
@@ -67,6 +90,7 @@ SCALED_DEFAULTS = {
     "halo_width": 3.0,    # white casing under a leader, so it reads over map art
     "shadow_offset": 2.0,
     "shadow_blur": 3.0,
+    "site_label_size": 20.0,  # the map's own campsite labels, kept clear
 }
 
 
@@ -192,9 +216,17 @@ def parent_columns(fieldnames):
     return named or fallback
 
 
-def format_children(raw):
-    """`Jane Doe:1|Mike Chen:4` -> `Jane Doe (1), Mike Chen (4)`."""
-    parts = []
+def grade_color(grade):
+    """The colour for one grade, stable from run to run."""
+    key = (grade or "").strip().upper()
+    if key in GRADE_ORDER:
+        return GRADE_COLORS[GRADE_ORDER.index(key) % len(GRADE_COLORS)]
+    return UNKNOWN_GRADE_COLOR
+
+
+def parse_children(raw):
+    """`Jane Doe:1|Mike Chen:4` -> [('Jane Doe (1)', '1'), ('Mike Chen (4)', '4')]."""
+    kids = []
     for chunk in (raw or "").split("|"):
         chunk = chunk.strip()
         if not chunk:
@@ -203,8 +235,8 @@ def format_children(raw):
         name, grade = name.strip(), grade.strip()
         if not name:
             continue
-        parts.append("%s (%s)" % (name, grade) if grade else name)
-    return ", ".join(parts)
+        kids.append(("%s (%s)" % (name, grade) if grade else name, grade))
+    return kids
 
 
 def load_assignments(path, assignment_col=None, children_col=None):
@@ -231,7 +263,7 @@ def load_assignments(path, assignment_col=None, children_col=None):
             continue
         names = [n for n in ((row.get(c) or "").strip() for c in parents) if n]
         family = " & ".join(names) or "(unnamed family)"
-        kids = format_children(row.get(children_col)) if children_col else ""
+        kids = parse_children(row.get(children_col)) if children_col else []
         by_site.setdefault(site_key(assignment), []).append((assignment, family, kids, row))
 
     meta = {"assignment_col": assignment_col, "children_col": children_col,
@@ -262,32 +294,57 @@ def wrap(text, width, indent=""):
                          subsequent_indent=indent + "  ") or []
 
 
+def child_lines(kids, width):
+    """Pack children into lines of coloured runs, one colour per grade.
+
+    Children are wrapped whole rather than by word, so a name and its grade
+    never split across lines and never take a second colour.
+    """
+    lines, current, used = [], [], 0
+    for index, (text, grade) in enumerate(kids):
+        piece = text if index == len(kids) - 1 else text + ", "
+        if current and width > 0 and used + len(piece) > width:
+            lines.append(current)
+            current, used = [], 2  # continuation lines are indented
+        if not current:
+            current = [("  " if lines else "", None)]
+            used += 2
+        current.append((piece, grade_color(grade)))
+        used += len(piece)
+    if current:
+        lines.append(current)
+    return lines
+
+
 def build_block(site_label, families, opts):
-    """Lines of one box as (text, kind, starts_new_family)."""
+    """Lines of one box as (runs, kind, starts_new_family), where each run is
+    (text, colour) and a colour of None means the line's default."""
     lines = []
     if opts.site_header:
         header = site_label
         if len(families) > 1:
             header = "%s  (%d families)" % (site_label, len(families))
-        lines.append((header, "header", False))
+        lines.append(([(header, None)], "header", False))
     for index, (_, parents, kids) in enumerate(families):
         first = True
         for line in wrap(parents, opts.wrap) or [parents]:
-            lines.append((line, "family", index > 0 and first))
+            lines.append(([(line, None)], "family", index > 0 and first))
             first = False
         if kids and opts.show_children:
-            for line in wrap(kids, opts.wrap, indent="  "):
-                lines.append((line, "children", False))
+            for runs in child_lines(kids, opts.wrap):
+                lines.append((runs, "children", False))
     return lines
 
 
 def measure(draw, lines, fonts, opts):
     """(width, height, per-line heights, per-line leading gaps) of a block."""
     widths, heights, gaps = [], [], []
-    for text, kind, starts_family in lines:
-        w, h = draw.textbbox((0, 0), text or " ", font=fonts[kind])[2:]
-        widths.append(w)
-        heights.append(h + opts.line_gap)
+    for runs, kind, starts_family in lines:
+        font = fonts[kind]
+        width = sum(draw.textlength(text, font=font) for text, _ in runs)
+        height = draw.textbbox((0, 0), "Ag", font=font)[3]
+        widths.append(width)
+        heights.append(height + opts.line_gap)
         gaps.append(opts.family_gap if starts_family else 0.0)
     box_w = max(widths) + 2 * opts.padding
     box_h = sum(heights) + sum(gaps) + 2 * opts.padding
@@ -316,7 +373,21 @@ def overlap_area(a, b):
     return dx * dy if dx > 0 and dy > 0 else 0.0
 
 
-def choose_position(px, py, box_w, box_h, placed, points, bounds, opts):
+def label_keepouts(sites, opts):
+    """A rectangle over each campsite's own label on the map, to be left clear.
+
+    The map's label geometry is not in the campsites sheet, so approximate it
+    from the site id's length around the recorded point.
+    """
+    size = opts.site_label_size
+    keepouts = []
+    for label, x, y in sites:
+        w = max(size, 0.62 * size * len(label))
+        keepouts.append((x - w / 2.0, y - size / 2.0, w, size))
+    return keepouts
+
+
+def choose_position(px, py, box_w, box_h, placed, keepouts, bounds, opts):
     """Greedy: the position nearest the campsite that clears everything placed."""
     x_min, y_min, x_max, y_max = bounds
     sides = ["right", "left", "below", "above"] if opts.side == "auto" else [opts.side]
@@ -346,8 +417,7 @@ def choose_position(px, py, box_w, box_h, placed, points, bounds, opts):
                 rect = (x, y, box_w, box_h)
 
                 clash = sum(overlap_area(rect, other) for other in placed)
-                covered = sum(1 for qx, qy in points
-                              if x <= qx <= x + box_w and y <= qy <= y + box_h)
+                covered = sum(overlap_area(rect, keep) for keep in keepouts)
                 leader = math.hypot(x + box_w / 2.0 - px, y + box_h / 2.0 - py)
                 score = (clash, covered, leader)
                 if best is None or score < best[0]:
@@ -466,7 +536,7 @@ def layout_gutter(base, blocks, opts):
     return canvas, boxes, "%d left / %d right" % (len(left), len(right))
 
 
-def layout_on_map(base, blocks, points, opts):
+def layout_on_map(base, blocks, sites, opts):
     """Sit each box beside its campsite, nudged around to avoid collisions."""
     margin = max(0.0, opts.margin)
     if margin:
@@ -478,15 +548,16 @@ def layout_on_map(base, blocks, points, opts):
         for box in blocks:
             box["px"] += margin
             box["py"] += margin
-        points = [(x + margin, y + margin) for x, y in points]
+        sites = [(label, x + margin, y + margin) for label, x, y in sites]
 
     edge = max(2.0, opts.border_width)
     bounds = (edge, edge, base.width - edge, base.height - edge)
+    keepouts = label_keepouts(sites, opts)
     placed, boxes = [], []
     # Biggest boxes claim space first; they are the hardest to fit later.
     for box in sorted(blocks, key=lambda b: -(b["w"] * b["h"])):
         rect = choose_position(box["px"], box["py"], box["w"], box["h"],
-                               placed, points, bounds, opts)
+                               placed, keepouts, bounds, opts)
         placed.append(rect)
         boxes.append((box["px"], box["py"], rect, box["lines"], box["heights"], box["gaps"]))
     return base, boxes, "beside each campsite"
@@ -533,15 +604,18 @@ def draw_map(base, boxes, fonts, opts):
                        outline=opts.border_color + (255,),
                        width=max(1, int(round(opts.border_width))))
         cursor = y + opts.padding
-        for (text, kind, _), line_h, gap in zip(lines, heights, gaps):
+        for (runs, kind, _), line_h, gap in zip(lines, heights, gaps):
             if gap:
                 mid = cursor + gap / 2.0
                 draw.line((x + opts.padding, mid, x + w - opts.padding, mid),
                           fill=opts.separator_color + (255,),
                           width=max(1, int(round(opts.border_width / 2))))
                 cursor += gap
-            draw.text((x + opts.padding, cursor), text, font=fonts[kind],
-                      fill=colors[kind] + (255,))
+            pen_x = x + opts.padding
+            for text, color in runs:
+                draw.text((pen_x, cursor), text, font=fonts[kind],
+                          fill=(color or colors[kind]) + (255,))
+                pen_x += draw.textlength(text, font=fonts[kind])
             cursor += line_h
 
     r = opts.dot_radius
@@ -636,6 +710,7 @@ def render_pdf(base, boxes, fonts, opts, path):
         return (height - y) * scale  # PDF's origin is bottom-left
 
     ascents = {kind: font.getmetrics()[0] for kind, font in fonts.items()}
+    ruler = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     colors = {"header": opts.header_color, "family": opts.text_color,
               "children": opts.children_color}
 
@@ -680,7 +755,7 @@ def render_pdf(base, boxes, fonts, opts, path):
         body += b"%s %s %s %s re B\nQ\n" % (n(sx(x)), n(sy(y + h)),
                                              n(w * scale), n(h * scale))
         cursor = y + opts.padding
-        for (text, kind, _), line_h, gap in zip(lines, heights, gaps):
+        for (runs, kind, _), line_h, gap in zip(lines, heights, gaps):
             if gap:
                 mid = cursor + gap / 2.0
                 body += rgb(opts.separator_color, stroke=True)
@@ -689,9 +764,12 @@ def render_pdf(base, boxes, fonts, opts, path):
                                                   n(sx(x + w - opts.padding)), n(sy(mid)))
                 cursor += gap
             size = opts.font_size * (0.92 if kind == "children" else 1.0) * scale
-            body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
-                PDF_FONT_RESOURCE[kind], n(size), rgb(colors[kind]),
-                n(sx(x + opts.padding)), n(sy(cursor + ascents[kind])), pdf_text(text))
+            pen_x = x + opts.padding
+            for text, color in runs:
+                body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
+                    PDF_FONT_RESOURCE[kind], n(size), rgb(color or colors[kind]),
+                    n(sx(pen_x)), n(sy(cursor + ascents[kind])), pdf_text(text))
+                pen_x += ruler.textlength(text, font=fonts[kind])
             cursor += line_h
 
     if opts.dot_radius > 0:
@@ -766,11 +844,11 @@ def build_parser():
     g.add_argument("--wrap", type=int, default=40,
                    help="wrap text at this many characters (0 disables) [%(default)s]")
     g.add_argument("--offset", type=float, help="pixels between the campsite and its box")
-    g.add_argument("--layout", choices=("gutter", "map"), default="gutter",
-                   help="'gutter' stacks the boxes in margins down the far left and "
-                        "far right, leaving the map itself clear, and grows the canvas "
-                        "until they fit; 'map' sits each box beside its campsite "
-                        "[%(default)s]")
+    g.add_argument("--layout", choices=("map", "gutter"), default="map",
+                   help="'map' sits each box beside its campsite, offset to clear both "
+                        "the other boxes and the map's own campsite labels; 'gutter' "
+                        "stacks them in margins down the far left and far right, "
+                        "leaving the map itself untouched [%(default)s]")
     g.add_argument("--box-gap", type=float,
                    help="vertical gap between boxes stacked in a gutter")
     g.add_argument("--gutter-gap", type=float,
@@ -792,6 +870,9 @@ def build_parser():
                    help="how far to nudge a box sideways when looking for space [%(default)s]")
     g.add_argument("--declutter-pushes", type=int, default=4, choices=(1, 2, 3, 4),
                    help="how far a box may be pushed away from its site [%(default)s]")
+    g.add_argument("--site-label-size", type=float,
+                   help="height of the campsite labels printed on the map itself, used "
+                        "to keep boxes from covering them")
     g.add_argument("--margin", type=float,
                    help="blank border around everything (default: a small border under "
                         "--layout gutter so nothing sits against the page edge, none "
@@ -920,7 +1001,7 @@ def main(argv=None):
         base, boxes, how = layout_gutter(base, blocks, opts)
     else:
         base, boxes, how = layout_on_map(
-            base, blocks, [(x, y) for _, x, y in sites.values()], opts)
+            base, blocks, list(sites.values()), opts)
     if (base.width, base.height) != map_size:
         print("canvas     grown to %dx%d for the boxes (%s)"
               % (base.width, base.height, how))

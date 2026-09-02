@@ -26,10 +26,13 @@ python3 plot_assignments.py \
 
 Needs Pillow, and nothing else. Notes:
 
-- By default the boxes are stacked in **gutters down the far left and far right**, joined to
-  their campsite by a leader line, so the map itself stays clear. The canvas grows sideways and
-  downwards until every box fits. `--layout map` instead sits each box next to its campsite,
-  which reads better on a sparse map but covers a crowded one.
+- Each box sits **beside its own campsite**, offset until it clears both the other boxes and
+  the campsite labels printed on the map itself, and joined to its site by an elbow connector.
+  `--site-label-size` is the assumed height of those map labels; `--layout gutter` instead
+  stacks every box in margins down the far left and far right, growing the canvas until they
+  fit, which leaves the map completely untouched at the cost of much longer connectors.
+- Each child's name and grade is **coloured by grade**, so one grade's families can be picked
+  out at a glance. The palette is fixed, so a grade keeps its colour between runs.
 - `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
   side` keeps every leader on its own half of the map, but only makes sense when the campsites
   are spread evenly — River Bend's cluster on the right, so it produces one 63-box column.
