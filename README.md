@@ -21,6 +21,7 @@ python3 plot_assignments.py \
     --map River-Bend-Map-2026-8x.png \
     --assignments assignments.csv \
     --out River-Bend-assignments-2026.pdf \
+    --photos "River Bend Campsite Images 2026" \
     --unplaced-out unplaced.csv
 ```
 
@@ -31,6 +32,11 @@ Needs Pillow, and nothing else. Notes:
   `--site-label-size` is the assumed height of those map labels; `--layout gutter` instead
   stacks every box in margins down the far left and far right, growing the canvas until they
   fit, which leaves the map completely untouched at the cost of much longer connectors.
+- `--photos DIR` gives every campsite with a photo **a page of its own** in the PDF — the
+  photo, who is camping there, and a link back to the map — and turns that campsite's box on
+  the map into a link to that page. Filenames are matched loosely against the site id, so
+  `H1.jpg`, `H-1.jpg` and `h 1.JPG` all resolve to campsite H-1. Photos that match no campsite
+  are reported rather than dropped silently.
 - Each child's name and grade is **coloured by grade**, so one grade's families can be picked
   out at a glance. The palette is fixed, so a grade keeps its colour between runs.
 - `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
