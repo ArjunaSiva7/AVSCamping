@@ -17,6 +17,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import io
 import math
@@ -197,34 +198,68 @@ def load_campsites(path, image_size, mode, site_col=None, x_col=None, y_col=None
     else:
         sx = sy = 1.0
 
+    section_col = find_column(fields, ("section", "site_type", "type"))
+    sections = OrderedDict()
+    for row in rows:
+        label = (row.get(site_col) or "").strip()
+        if label and section_col:
+            sections[site_key(label)] = (row.get(section_col) or "").strip()
+
     sites = OrderedDict()
     for label, x, y in usable:
         sites[site_key(label)] = (label, x * sx, y * sy)
-    return sites, no_coords, "%s/%s (%s)" % (x_col, y_col, kind), kind
+    return sites, no_coords, "%s/%s (%s)" % (x_col, y_col, kind), sections
 
 
-def load_photos(directory, sites):
-    """{site_key: path} for every image in `directory` named after a campsite.
+def loose_key(text):
+    """Letters and digits only, upper case, with a leading `THE` dropped."""
+    key = re.sub(r"[^A-Z0-9]", "", (text or "").upper())
+    return key[3:] if key.startswith("THE") and len(key) > 3 else key
 
-    Filenames are matched loosely, so `H1.jpg`, `H-1.jpg` and `h 1.JPG` all
-    resolve to campsite H-1.
+
+def match_photo(stem, by_site, by_section):
+    """The campsite a photo filename refers to, or None.
+
+    Site ids come first, so `H1.jpg` and `H-1.jpg` both land on H-1. Failing
+    that, the one-off cabins are named on disk after what the map calls them
+    rather than after their site id -- `Magic Bus.jpeg`, `The Outpost.jpg`,
+    `CC-11 Counselor's Cabin.jpg` -- so fall back to matching the section name,
+    which only ever applies to sections holding a single campsite.
     """
+    key = loose_key(stem)
+    if key in by_site:
+        return by_site[key]
+    if key in by_section:
+        return by_section[key]
+    hits = {site for name, site in by_section.items()
+            if name and (name in key or key in name)}
+    return hits.pop() if len(hits) == 1 else None
+
+
+def load_photos(directory, sites, sections):
+    """{site_key: path} for every image in `directory` named after a campsite."""
     if not os.path.isdir(directory):
         raise SystemExit("photo folder %r is not a directory" % directory)
-    loose = {re.sub(r"[^A-Z0-9]", "", key): key for key in sites}
+
+    by_site = {loose_key(key): key for key in sites}
+    # Only single-campsite sections can be identified by their name alone.
+    counts = collections.Counter(sections.values())
+    by_section = {loose_key(name): key for key, name in sections.items()
+                  if counts[name] == 1 and key in sites}
+
     photos, unmatched = {}, []
     for name in sorted(os.listdir(directory)):
         stem, ext = os.path.splitext(name)
         if ext.lower() not in (".jpg", ".jpeg", ".png"):
             continue
-        key = loose.get(re.sub(r"[^A-Z0-9]", "", stem.upper()))
-        if key:
-            photos[key] = os.path.join(directory, name)
+        site = match_photo(stem, by_site, by_section)
+        if site:
+            photos[site] = os.path.join(directory, name)
         else:
             unmatched.append(name)
     if unmatched:
-        print("warning: %d photo(s) match no campsite: %s"
-              % (len(unmatched), ", ".join(unmatched[:6])), file=sys.stderr)
+        print("note: %d photo(s) match no campsite in the sheet: %s"
+              % (len(unmatched), ", ".join(unmatched)), file=sys.stderr)
     return photos
 
 
@@ -737,8 +772,16 @@ def rgb(color, stroke=False):
     return b"%s %s %s %s\n" % (n(r), n(g), n(b), b"RG" if stroke else b"rg")
 
 
-def jpeg_bytes(image, quality):
-    """Baseline RGB JPEG, which is what a PDF's DCTDecode filter can read."""
+def jpeg_bytes(image, quality, max_edge=0):
+    """Baseline RGB JPEG, which is what a PDF's DCTDecode filter can read.
+
+    Anything past `max_edge` is resolution nobody can see at the size a photo
+    prints, so it comes off before it costs file size.
+    """
+    if max_edge and max(image.size) > max_edge:
+        scale = max_edge / float(max(image.size))
+        image = image.resize((max(1, round(image.width * scale)),
+                              max(1, round(image.height * scale))), Image.LANCZOS)
     buf = io.BytesIO()
     image.convert("RGB").save(buf, "JPEG", quality=quality, optimize=True,
                               progressive=False)
@@ -808,7 +851,7 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
             b"/Contents %d 0 R /Annots [%d 0 R] >>"
             % (n(page_w), n(page_h), image_num, content_num, back_num))
     pdf.put_stream(content_num, b"", bytes(body))
-    data = jpeg_bytes(image, opts.pdf_quality)
+    data = jpeg_bytes(image, opts.pdf_quality, opts.photo_max_pixels)
     pdf.put_stream(image_num,
                    b"/Type /XObject /Subtype /Image /Width %d /Height %d "
                    b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
@@ -1095,6 +1138,11 @@ def build_parser():
                    help="tallest a photo may print, in inches [%(default)s]")
     g.add_argument("--photo-caption-size", type=float, default=11.0,
                    help="caption point size on a photo page [%(default)s]")
+    g.add_argument("--photo-max-pixels", type=int, default=1600,
+                   help="downscale a photo's long edge to this before embedding; a "
+                        "photo prints at most a few inches wide, so anything beyond "
+                        "this is file size nobody can see (0 keeps the original) "
+                        "[%(default)s]")
 
     g = p.add_argument_group("reporting")
     g.add_argument("--unplaced-out",
@@ -1133,7 +1181,7 @@ def main(argv=None):
     map_size = base.size
     resolve_scaled(opts, map_size)
 
-    sites, no_coords, coord_desc, _ = load_campsites(
+    sites, no_coords, coord_desc, sections = load_campsites(
         opts.campsites, map_size, opts.coords, opts.site_col, opts.x_col, opts.y_col)
     by_site, meta = load_assignments(opts.assignments, opts.assignment_col, opts.children_col)
 
@@ -1181,11 +1229,15 @@ def main(argv=None):
               % (base.width, base.height, how))
 
     if opts.out.lower().endswith(".pdf"):
-        photos = load_photos(opts.photos, sites) if opts.photos else {}
+        photos = load_photos(opts.photos, sites, sections) if opts.photos else {}
         if opts.photos:
             linked = sum(1 for box in boxes if box.get("key") in photos)
-            print("photos     %d in %s, %d linked from the map"
-                  % (len(photos), opts.photos, linked))
+            missing = sorted(box["label"] for box in boxes if box["key"] not in photos)
+            print("photos     %d matched a campsite, %d linked from the map"
+                  % (len(photos), linked))
+            if missing:
+                print("           %d assigned campsite(s) have no photo: %s"
+                      % (len(missing), ", ".join(missing)))
         page_w, page_h, count = render_pdf(base, boxes, fonts, opts, opts.out, photos)
         written = ("  (%.1f x %.1f in, %d page%s, searchable text)"
                    % (page_w, page_h, count, "" if count == 1 else "s"))

@@ -35,8 +35,12 @@ Needs Pillow, and nothing else. Notes:
 - `--photos DIR` gives every campsite with a photo **a page of its own** in the PDF — the
   photo, who is camping there, and a link back to the map — and turns that campsite's box on
   the map into a link to that page. Filenames are matched loosely against the site id, so
-  `H1.jpg`, `H-1.jpg` and `h 1.JPG` all resolve to campsite H-1. Photos that match no campsite
-  are reported rather than dropped silently.
+  `H1.jpg`, `H-1.jpg` and `h 1.JPG` all resolve to campsite H-1; a one-off cabin named on disk
+  after what the map calls it (`Magic Bus.jpeg`, `The Outpost.jpg`) is matched on its section
+  instead, which only applies to sections holding a single campsite. Photos matching no
+  campsite, and assigned campsites with no photo, are both reported rather than passing
+  silently. `--photo-max-pixels` caps the resolution embedded, since a photo only prints a few
+  inches wide.
 - Each child's name and grade is **coloured by grade**, so one grade's families can be picked
   out at a glance. The palette is fixed, so a grade keeps its colour between runs.
 - `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
