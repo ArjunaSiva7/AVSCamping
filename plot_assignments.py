@@ -17,6 +17,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import io
 import math
@@ -197,10 +198,75 @@ def load_campsites(path, image_size, mode, site_col=None, x_col=None, y_col=None
     else:
         sx = sy = 1.0
 
+    section_col = find_column(fields, ("section", "site_type", "type"))
+    sections = OrderedDict()
+    for row in rows:
+        label = (row.get(site_col) or "").strip()
+        if label and section_col:
+            sections[site_key(label)] = (row.get(section_col) or "").strip()
+
     sites = OrderedDict()
     for label, x, y in usable:
         sites[site_key(label)] = (label, x * sx, y * sy)
-    return sites, no_coords, "%s/%s (%s)" % (x_col, y_col, kind), kind
+    return sites, no_coords, "%s/%s (%s)" % (x_col, y_col, kind), sections
+
+
+def natural_key(text):
+    """Sort key where the numbers in an id sort as numbers: H-2 before H-10."""
+    return tuple(int(part) if part.isdigit() else part.lower()
+                 for part in re.split(r"(\d+)", text or ""))
+
+
+def loose_key(text):
+    """Letters and digits only, upper case, with a leading `THE` dropped."""
+    key = re.sub(r"[^A-Z0-9]", "", (text or "").upper())
+    return key[3:] if key.startswith("THE") and len(key) > 3 else key
+
+
+def match_photo(stem, by_site, by_section):
+    """The campsite a photo filename refers to, or None.
+
+    Site ids come first, so `H1.jpg` and `H-1.jpg` both land on H-1. Failing
+    that, the one-off cabins are named on disk after what the map calls them
+    rather than after their site id -- `Magic Bus.jpeg`, `The Outpost.jpg`,
+    `CC-11 Counselor's Cabin.jpg` -- so fall back to matching the section name,
+    which only ever applies to sections holding a single campsite.
+    """
+    key = loose_key(stem)
+    if key in by_site:
+        return by_site[key]
+    if key in by_section:
+        return by_section[key]
+    hits = {site for name, site in by_section.items()
+            if name and (name in key or key in name)}
+    return hits.pop() if len(hits) == 1 else None
+
+
+def load_photos(directory, sites, sections):
+    """{site_key: path} for every image in `directory` named after a campsite."""
+    if not os.path.isdir(directory):
+        raise SystemExit("photo folder %r is not a directory" % directory)
+
+    by_site = {loose_key(key): key for key in sites}
+    # Only single-campsite sections can be identified by their name alone.
+    counts = collections.Counter(sections.values())
+    by_section = {loose_key(name): key for key, name in sections.items()
+                  if counts[name] == 1 and key in sites}
+
+    photos, unmatched = {}, []
+    for name in sorted(os.listdir(directory)):
+        stem, ext = os.path.splitext(name)
+        if ext.lower() not in (".jpg", ".jpeg", ".png"):
+            continue
+        site = match_photo(stem, by_site, by_section)
+        if site:
+            photos[site] = os.path.join(directory, name)
+        else:
+            unmatched.append(name)
+    if unmatched:
+        print("note: %d photo(s) match no campsite in the sheet: %s"
+              % (len(unmatched), ", ".join(unmatched)), file=sys.stderr)
+    return photos
 
 
 def parent_columns(fieldnames):
@@ -531,8 +597,8 @@ def layout_gutter(base, blocks, opts):
             box["desired"] = margin + frac * max(0.0, span - box["h"])
         for box in stack_column(items, margin, canvas_h - margin, gap):
             x = (map_x - gutter - box["w"]) if side == "left" else map_x + map_w + gutter
-            boxes.append((box["px"], box["py"], (x, box["y"], box["w"], box["h"]),
-                          box["lines"], box["heights"], box["gaps"]))
+            box["rect"] = (x, box["y"], box["w"], box["h"])
+            boxes.append(box)
     return canvas, boxes, "%d left / %d right" % (len(left), len(right))
 
 
@@ -559,7 +625,8 @@ def layout_on_map(base, blocks, sites, opts):
         rect = choose_position(box["px"], box["py"], box["w"], box["h"],
                                placed, keepouts, bounds, opts)
         placed.append(rect)
-        boxes.append((box["px"], box["py"], rect, box["lines"], box["heights"], box["gaps"]))
+        box["rect"] = rect
+        boxes.append(box)
     return base, boxes, "beside each campsite"
 
 
@@ -573,14 +640,13 @@ def draw_map(base, boxes, fonts, opts):
     colors = {"header": opts.header_color, "family": opts.text_color,
               "children": opts.children_color}
     leader_w = max(1, int(round(opts.leader_width)))
-    routes = [(leader_points(px, py, rect, opts))
-              for px, py, rect, _, _, _ in boxes]
+    routes = [leader_points(b["px"], b["py"], b["rect"], opts) for b in boxes]
 
     if opts.shadow:
         shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
         pen = ImageDraw.Draw(shadow)
         off = opts.shadow_offset
-        for x, y, w, h in (rect for _, _, rect, _, _, _ in boxes):
+        for x, y, w, h in (b["rect"] for b in boxes):
             pen.rectangle((x + off, y + off, x + w + off, y + h + off),
                           fill=(0, 0, 0, 90))
         overlay = Image.alpha_composite(
@@ -598,8 +664,9 @@ def draw_map(base, boxes, fonts, opts):
         draw.line([c for point in route for c in point],
                   fill=opts.leader_color + (255,), width=leader_w, joint="curve")
 
-    for px, py, rect, lines, heights, gaps in boxes:
-        x, y, w, h = rect
+    for box in boxes:
+        lines, heights, gaps = box["lines"], box["heights"], box["gaps"]
+        x, y, w, h = box["rect"]
         draw.rectangle((x, y, x + w, y + h), fill=opts.box_fill + (opts.box_alpha,),
                        outline=opts.border_color + (255,),
                        width=max(1, int(round(opts.border_width))))
@@ -620,7 +687,8 @@ def draw_map(base, boxes, fonts, opts):
 
     r = opts.dot_radius
     if r > 0:
-        for px, py, _, _, _, _ in boxes:
+        for box in boxes:
+            px, py = box["px"], box["py"]
             draw.ellipse((px - r, py - r, px + r, py + r), fill=opts.dot_color + (255,),
                          outline=(255, 255, 255, 255), width=max(1, int(round(r / 3))))
 
@@ -660,11 +728,25 @@ class PdfWriter:
         self.objects.append(body)
         return len(self.objects) - 1
 
+    def reserve(self):
+        """Claim an object number now and fill it in later, so an object can
+        refer to one written after it."""
+        return self.add(None)
+
+    def put(self, number, body):
+        self.objects[number] = body
+        return number
+
+    def put_stream(self, number, entries, data):
+        return self.put(number, b"<< " + entries + b" /Length %d >>\nstream\n"
+                        % len(data) + data + b"\nendstream")
+
     def add_stream(self, entries, data):
-        return self.add(b"<< " + entries + b" /Length %d >>\nstream\n" % len(data)
-                        + data + b"\nendstream")
+        return self.put_stream(self.reserve(), entries, data)
 
     def save(self, path):
+        missing = [i for i, body in enumerate(self.objects) if i and body is None]
+        assert not missing, "reserved but never filled: %s" % missing
         out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
         offsets = []
         for number, body in enumerate(self.objects[1:], start=1):
@@ -696,8 +778,115 @@ def rgb(color, stroke=False):
     return b"%s %s %s %s\n" % (n(r), n(g), n(b), b"RG" if stroke else b"rg")
 
 
-def render_pdf(base, boxes, fonts, opts, path):
-    """Write the map plus vector boxes and live text to a PDF."""
+def jpeg_bytes(image, quality, max_edge=0):
+    """Baseline RGB JPEG, which is what a PDF's DCTDecode filter can read.
+
+    Anything past `max_edge` is resolution nobody can see at the size a photo
+    prints, so it comes off before it costs file size.
+    """
+    if max_edge and max(image.size) > max_edge:
+        scale = max_edge / float(max(image.size))
+        image = image.resize((max(1, round(image.width * scale)),
+                              max(1, round(image.height * scale))), Image.LANCZOS)
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, "JPEG", quality=quality, optimize=True,
+                              progressive=False)
+    return buf.getvalue()
+
+
+def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
+    """One page: the campsite's photo, who is on it, and a link back to the map.
+
+    Laid out at 1 unit = 1 point, so the caption sizes are literal point sizes
+    however large the map image was.
+    """
+    page_num, content_num, image_num, back_num = objects
+    margin, gap = 36.0, 12.0
+    page_w = opts.photo_page_width * 72.0
+    title_size = opts.photo_caption_size * 1.45
+
+    image = Image.open(photo_path)
+    fit = min((page_w - 2 * margin) / image.width,
+              opts.photo_max_height * 72.0 / image.height)
+    shot_w, shot_h = image.width * fit, image.height * fit
+
+    caption = [line for line in box["lines"] if line[1] != "header"]
+    leading = {kind: ruler.textbbox((0, 0), "Ag", font=font)[3] * 1.28
+               for kind, font in fonts.items()}
+    caption_h = sum(leading[kind] for _, kind, _ in caption)
+    back_h = opts.photo_caption_size * 1.4
+    page_h = (margin + title_size + gap + shot_h + gap + caption_h
+              + gap + back_h + margin)
+
+    families = sum(1 for _, kind, starts in box["lines"] if kind == "family" and starts) + 1
+    title = box["label"] if families < 2 else "%s  (%d families)" % (box["label"], families)
+    section = box.get("section") or ""
+
+    body = bytearray()
+    cursor = page_h - margin - title_size
+    body += b"BT /F2 %s Tf %s%s %s Td (%s) Tj ET\n" % (
+        n(title_size), rgb(opts.header_color), n(margin), n(cursor),
+        pdf_text(title))
+    if section:
+        body += b"BT /F1 %s Tf %s%s %s Td (%s) Tj ET\n" % (
+            n(opts.photo_caption_size), rgb(opts.children_color),
+            n(margin + ruler.textlength(title + "   ", font=fonts["header"])
+              * title_size / opts.photo_caption_size),
+            n(cursor), pdf_text(section))
+
+    cursor -= gap + shot_h
+    body += b"q %s 0 0 %s %s %s cm /Im0 Do Q\n" % (
+        n(shot_w), n(shot_h), n((page_w - shot_w) / 2.0), n(cursor))
+
+    cursor -= gap
+    colors = {"family": opts.text_color, "children": opts.children_color}
+    for runs, kind, _ in caption:
+        size = opts.photo_caption_size * (0.92 if kind == "children" else 1.0)
+        cursor -= leading[kind]
+        pen_x = margin
+        for text, color in runs:
+            body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
+                PDF_FONT_RESOURCE[kind], n(size), rgb(color or colors[kind]),
+                n(pen_x), n(cursor), pdf_text(text))
+            pen_x += ruler.textlength(text, font=fonts[kind])
+
+    cursor -= gap + back_h
+    back_text = "< Back to the map"
+    back_w = ruler.textlength(back_text, font=fonts["family"])
+    body += b"BT /F1 %s Tf %s%s %s Td (%s) Tj ET\n" % (
+        n(opts.photo_caption_size), rgb(opts.leader_color), n(margin), n(cursor),
+        pdf_text(back_text))
+
+    pdf.put(page_num,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
+            b"/Resources << /XObject << /Im0 %d 0 R >> "
+            b"/Font << /F1 6 0 R /F2 7 0 R >> >> "
+            b"/Contents %d 0 R /Annots [%d 0 R] >>"
+            % (n(page_w), n(page_h), image_num, content_num, back_num))
+    pdf.put_stream(content_num, b"", bytes(body))
+    data = jpeg_bytes(image, opts.pdf_quality, opts.photo_max_pixels)
+    pdf.put_stream(image_num,
+                   b"/Type /XObject /Subtype /Image /Width %d /Height %d "
+                   b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
+                   % (image.width, image.height), data)
+    pdf.put(back_num, link_annot((margin, cursor - 3, margin + back_w,
+                                  cursor + back_h), map_page))
+    return page_num
+
+
+def link_annot(rect, target_page):
+    x0, y0, x1, y1 = rect
+    return (b"<< /Type /Annot /Subtype /Link /Border [0 0 0] "
+            b"/Rect [%s %s %s %s] /A << /S /GoTo /D [%d 0 R /Fit] >> >>"
+            % (n(x0), n(y0), n(x1), n(y1), target_page))
+
+
+def render_pdf(base, boxes, fonts, opts, path, photos=None):
+    """Write the map plus vector boxes and live text to a PDF.
+
+    Campsites with a photo get a page of their own, linked from their box
+    on the map."""
+    photos = photos or {}
     width, height = base.size
     scale = (opts.pdf_page_width * 72.0 / width if opts.pdf_page_width
              else 1.0 / opts.ui_scale)
@@ -727,7 +916,7 @@ def render_pdf(base, boxes, fonts, opts, path):
     # A PDF has no blur, so the drop shadow is a few stacked translucent rects.
     if opts.shadow:
         body += b"q /GS2 gs " + rgb((0, 0, 0))
-        for _, _, (x, y, w, h), _, _, _ in boxes:
+        for x, y, w, h in (b["rect"] for b in boxes):
             for step in (0.0, 0.5, 1.0):
                 grow = opts.shadow_blur * step
                 ox, oy = opts.shadow_offset, opts.shadow_offset
@@ -736,7 +925,7 @@ def render_pdf(base, boxes, fonts, opts, path):
                     n((w + 2 * grow) * scale), n((h + 2 * grow) * scale))
         body += b"Q\n"
 
-    routes = [leader_points(px, py, rect, opts) for px, py, rect, _, _, _ in boxes]
+    routes = [leader_points(b["px"], b["py"], b["rect"], opts) for b in boxes]
     if opts.shadow and opts.halo_width > 0:
         body += rgb(opts.halo_color, stroke=True)
         body += b"%s w\n" % n(max(0.1, (opts.leader_width + opts.halo_width) * scale))
@@ -747,8 +936,9 @@ def render_pdf(base, boxes, fonts, opts, path):
     for route in routes:
         body += polyline(route)
 
-    for px, py, rect, lines, heights, gaps in boxes:
-        x, y, w, h = rect
+    for box in boxes:
+        lines, heights, gaps = box["lines"], box["heights"], box["gaps"]
+        x, y, w, h = box["rect"]
         body += b"q /GS1 gs\n"
         body += rgb(opts.box_fill) + rgb(opts.border_color, stroke=True)
         body += b"%s w\n" % n(max(0.1, opts.border_width * scale))
@@ -774,8 +964,8 @@ def render_pdf(base, boxes, fonts, opts, path):
 
     if opts.dot_radius > 0:
         body += rgb(opts.dot_color)
-        for px, py, _, _, _, _ in boxes:
-            body += pdf_circle(sx(px), sy(py), opts.dot_radius * scale)
+        for box in boxes:
+            body += pdf_circle(sx(box["px"]), sy(box["py"]), opts.dot_radius * scale)
 
     jpeg = io.BytesIO()
     base.convert("RGB").save(jpeg, "JPEG", quality=opts.pdf_quality, optimize=True)
@@ -783,24 +973,55 @@ def render_pdf(base, boxes, fonts, opts, path):
 
     pdf = PdfWriter()
     catalog = pdf.add(b"<< /Type /Catalog /Pages 2 0 R >>")
-    pages = pdf.add(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-    page = pdf.add(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
-                   b"/Resources << /XObject << /Im0 5 0 R >> "
-                   b"/Font << /F1 6 0 R /F2 7 0 R >> "
-                   b"/ExtGState << /GS1 8 0 R /GS2 9 0 R >> >> /Contents 4 0 R >>"
-                   % (n(page_w), n(page_h)))
-    pdf.add_stream(b"", bytes(body))
-    pdf.add_stream(b"/Type /XObject /Subtype /Image /Width %d /Height %d "
-                   b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
-                   % (width, height), jpeg)
+    pages = pdf.reserve()
+    page = pdf.reserve()
+    content = pdf.reserve()
+    map_image = pdf.reserve()
     for face in (b"/Helvetica", b"/Helvetica-Bold"):
         pdf.add(b"<< /Type /Font /Subtype /Type1 /BaseFont %s "
                 b"/Encoding /WinAnsiEncoding >>" % face)
     pdf.add(b"<< /Type /ExtGState /ca %s /CA 1 >>" % n(opts.box_alpha / 255.0))
     pdf.add(b"<< /Type /ExtGState /ca 0.10 /CA 0.10 >>")  # drop shadow
-    assert (catalog, pages, page) == (1, 2, 3), "object numbers are referenced by hand"
+    assert (catalog, pages, page, content, map_image) == (1, 2, 3, 4, 5), \
+        "object numbers 1-9 are referenced by hand"
+
+    # A page per campsite photo, and a link from that campsite's box to it.
+    shots = sorted((box for box in boxes if box.get("key") in photos),
+                   key=lambda box: (box.get("section_rank", 0),
+                                    natural_key(box["label"])))
+    caption_fonts = {
+        "family": load_font(opts.font, opts.photo_caption_size, FONT_CANDIDATES),
+        "children": load_font(opts.font, opts.photo_caption_size * 0.92,
+                              FONT_CANDIDATES),
+        "header": load_font(opts.bold_font or opts.font, opts.photo_caption_size,
+                            BOLD_FONT_CANDIDATES + FONT_CANDIDATES),
+    }
+    links = []
+    for box in shots:
+        objects = (pdf.reserve(), pdf.reserve(), pdf.reserve(), pdf.reserve())
+        box["photo_page"] = photo_page(pdf, objects, box, photos[box["key"]], page,
+                                       caption_fonts, ruler, opts)
+        x, y, w, h = box["rect"]
+        links.append(pdf.add(link_annot(
+            (sx(x), sy(y + h), sx(x + w), sy(y)), box["photo_page"])))
+
+    annots = (b" /Annots [%s]" % b" ".join(b"%d 0 R" % i for i in links)) if links else b""
+    pdf.put(page, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
+                  b"/Resources << /XObject << /Im0 5 0 R >> "
+                  b"/Font << /F1 6 0 R /F2 7 0 R >> "
+                  b"/ExtGState << /GS1 8 0 R /GS2 9 0 R >> >> /Contents 4 0 R%s >>"
+                  % (n(page_w), n(page_h), annots))
+    pdf.put_stream(content, b"", bytes(body))
+    pdf.put_stream(map_image,
+                   b"/Type /XObject /Subtype /Image /Width %d /Height %d "
+                   b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
+                   % (width, height), jpeg)
+
+    order = [page] + [box["photo_page"] for box in shots]
+    pdf.put(pages, b"<< /Type /Pages /Kids [%s] /Count %d >>"
+            % (b" ".join(b"%d 0 R" % i for i in order), len(order)))
     pdf.save(path)
-    return page_w / 72.0, page_h / 72.0
+    return page_w / 72.0, page_h / 72.0, len(order)
 
 
 # --------------------------------------------------------------------------
@@ -921,7 +1142,22 @@ def build_parser():
                    help="page width in inches (default: sized so labels come out at "
                         "roughly --font-size points, whatever the map's resolution)")
     g.add_argument("--pdf-quality", type=int, default=85,
-                   help="JPEG quality of the map inside the PDF [%(default)s]")
+                   help="JPEG quality of images inside the PDF [%(default)s]")
+    g.add_argument("--photos", metavar="DIR",
+                   help="folder of campsite photos, named after the site (H-1.jpg, "
+                        "H1.jpg). Each gets a page of its own and its box on the map "
+                        "becomes a link to that page")
+    g.add_argument("--photo-page-width", type=float, default=7.5,
+                   help="width of a photo page, in inches [%(default)s]")
+    g.add_argument("--photo-max-height", type=float, default=6.0,
+                   help="tallest a photo may print, in inches [%(default)s]")
+    g.add_argument("--photo-caption-size", type=float, default=11.0,
+                   help="caption point size on a photo page [%(default)s]")
+    g.add_argument("--photo-max-pixels", type=int, default=1600,
+                   help="downscale a photo's long edge to this before embedding; a "
+                        "photo prints at most a few inches wide, so anything beyond "
+                        "this is file size nobody can see (0 keeps the original) "
+                        "[%(default)s]")
 
     g = p.add_argument_group("reporting")
     g.add_argument("--unplaced-out",
@@ -960,7 +1196,7 @@ def main(argv=None):
     map_size = base.size
     resolve_scaled(opts, map_size)
 
-    sites, no_coords, coord_desc, _ = load_campsites(
+    sites, no_coords, coord_desc, sections = load_campsites(
         opts.campsites, map_size, opts.coords, opts.site_col, opts.x_col, opts.y_col)
     by_site, meta = load_assignments(opts.assignments, opts.assignment_col, opts.children_col)
 
@@ -981,6 +1217,9 @@ def main(argv=None):
     }
     ruler = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
 
+    # Photo pages are grouped by campsite type, in the order the sheet lists them.
+    section_rank = {name: rank for rank, name
+                    in enumerate(dict.fromkeys(sections.values()))}
     blocks, unplaced_rows, unplaced_reasons = [], [], []
     for key, entries in by_site.items():
         if key in sites:
@@ -988,7 +1227,10 @@ def main(argv=None):
             families = [(raw, parents, kids) for raw, parents, kids, _ in entries]
             lines = build_block(label, families, opts)
             box_w, box_h, heights, gaps = measure(ruler, lines, fonts, opts)
-            blocks.append({"px": px, "py": py, "w": box_w, "h": box_h,
+            section = sections.get(key, "")
+            blocks.append({"label": label, "key": key, "section": section,
+                           "section_rank": section_rank.get(section, len(section_rank)),
+                           "px": px, "py": py, "w": box_w, "h": box_h,
                            "lines": lines, "heights": heights, "gaps": gaps})
         else:
             reason = ("site has no coordinates in the campsites CSV"
@@ -1007,8 +1249,18 @@ def main(argv=None):
               % (base.width, base.height, how))
 
     if opts.out.lower().endswith(".pdf"):
-        page = render_pdf(base, boxes, fonts, opts, opts.out)
-        written = "  (%.1f x %.1f in, searchable text)" % page
+        photos = load_photos(opts.photos, sites, sections) if opts.photos else {}
+        if opts.photos:
+            linked = sum(1 for box in boxes if box.get("key") in photos)
+            missing = sorted(box["label"] for box in boxes if box["key"] not in photos)
+            print("photos     %d matched a campsite, %d linked from the map"
+                  % (len(photos), linked))
+            if missing:
+                print("           %d assigned campsite(s) have no photo: %s"
+                      % (len(missing), ", ".join(missing)))
+        page_w, page_h, count = render_pdf(base, boxes, fonts, opts, opts.out, photos)
+        written = ("  (%.1f x %.1f in, %d page%s, searchable text)"
+                   % (page_w, page_h, count, "" if count == 1 else "s"))
     else:
         out = draw_map(base, boxes, fonts, opts)
         if opts.out.lower().endswith((".jpg", ".jpeg")):
@@ -1017,7 +1269,7 @@ def main(argv=None):
             out.save(opts.out)
         written = ""
 
-    placed = [rect for _, _, rect, _, _, _ in boxes]
+    placed = [b["rect"] for b in boxes]
     residual = sum(overlap_area(a, b) for i, a in enumerate(placed) for b in placed[i + 1:])
     print("drew       %d box(es) -> %s%s%s"
           % (len(boxes), opts.out, written,

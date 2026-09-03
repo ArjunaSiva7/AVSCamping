@@ -21,6 +21,7 @@ python3 plot_assignments.py \
     --map River-Bend-Map-2026-8x.png \
     --assignments assignments.csv \
     --out River-Bend-assignments-2026.pdf \
+    --photos "River Bend Campsite Images 2026" \
     --unplaced-out unplaced.csv
 ```
 
@@ -31,6 +32,16 @@ Needs Pillow, and nothing else. Notes:
   `--site-label-size` is the assumed height of those map labels; `--layout gutter` instead
   stacks every box in margins down the far left and far right, growing the canvas until they
   fit, which leaves the map completely untouched at the cost of much longer connectors.
+- `--photos DIR` gives every campsite with a photo **a page of its own** in the PDF — the
+  photo, who is camping there, and a link back to the map — and turns that campsite's box on
+  the map into a link to that page. Filenames are matched loosely against the site id, so
+  `H1.jpg`, `H-1.jpg` and `h 1.JPG` all resolve to campsite H-1; a one-off cabin named on disk
+  after what the map calls it (`Magic Bus.jpeg`, `The Outpost.jpg`) is matched on its section
+  instead, which only applies to sections holding a single campsite. Photos matching no
+  campsite, and assigned campsites with no photo, are both reported rather than passing
+  silently. Photo pages are grouped by campsite type in the order the campsites sheet lists
+  them, and numbered naturally within each type, so H-2 comes before H-10. `--photo-max-pixels` caps the resolution embedded, since a photo only prints a few
+  inches wide.
 - Each child's name and grade is **coloured by grade**, so one grade's families can be picked
   out at a glance. The palette is fixed, so a grade keeps its colour between runs.
 - `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
@@ -57,9 +68,10 @@ Both specs list their own inputs. The ones that change per trip:
 
 - **Signups** — the signup sheet: names, campsite preferences, first submitted timestamp, number of attendees, whether they missed out on a cabin last year, and whether they'd accept a tent.
 - **Directory** — the family directory, used to cross reference signups and pull children's names, grades, and parent emails. Defaults to the [AVS parent directory](https://portals.veracross.com/avs/parent/directory/households), which needs a login; a sheet or file can be supplied instead.
-- **Campsites** — one row per campsite, with section, capacity, and adjacency. See *Campsites Schema* in [assignments.md](assignments.md) for the columns. For the 2026 River Bend trip this is `River-Bend-campsites-2026.csv` in the [AVSRiverBendFall2026](https://github.com/ArjunaSiva7/AVSRiverBendFall2026) repo, alongside the campground map image.
+- **Campsites** — one row per campsite, with section, capacity, the extra capacity the campground will sell on top of it, and adjacency. See *Campsites Schema* in [assignments.md](assignments.md) for the columns. For the 2026 River Bend trip this is `River-Bend-campsites-2026.csv` in the [AVSRiverBendFall2026](https://github.com/ArjunaSiva7/AVSRiverBendFall2026) repo, alongside the campground map image.
 - **Adjustments** (assignment stage only) — tweaks that override the default strategy, e.g. a family asking to be placed near another family.
 - **Output** — a path to the sheet or file to write to. The lottery's output is the assignment stage's Families input.
+- **Summary Output** (assignment stage only) — where to write the per-campsite summary CSV: one row per campsite with the families and children on it, its capacity and extra capacity, and its occupancy — so a site sitting in its paid extra room is easy to spot. Defaults to `<output name>-sites.csv`.
 
 ## Things worth knowing before you run it
 
