@@ -39,7 +39,8 @@ Needs Pillow, and nothing else. Notes:
   after what the map calls it (`Magic Bus.jpeg`, `The Outpost.jpg`) is matched on its section
   instead, which only applies to sections holding a single campsite. Photos matching no
   campsite, and assigned campsites with no photo, are both reported rather than passing
-  silently. `--photo-max-pixels` caps the resolution embedded, since a photo only prints a few
+  silently. Photo pages are grouped by campsite type in the order the campsites sheet lists
+  them, and numbered naturally within each type, so H-2 comes before H-10. `--photo-max-pixels` caps the resolution embedded, since a photo only prints a few
   inches wide.
 - Each child's name and grade is **coloured by grade**, so one grade's families can be picked
   out at a glance. The palette is fixed, so a grade keeps its colour between runs.

@@ -211,6 +211,12 @@ def load_campsites(path, image_size, mode, site_col=None, x_col=None, y_col=None
     return sites, no_coords, "%s/%s (%s)" % (x_col, y_col, kind), sections
 
 
+def natural_key(text):
+    """Sort key where the numbers in an id sort as numbers: H-2 before H-10."""
+    return tuple(int(part) if part.isdigit() else part.lower()
+                 for part in re.split(r"(\d+)", text or ""))
+
+
 def loose_key(text):
     """Letters and digits only, upper case, with a leading `THE` dropped."""
     key = re.sub(r"[^A-Z0-9]", "", (text or "").upper())
@@ -814,12 +820,19 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
 
     families = sum(1 for _, kind, starts in box["lines"] if kind == "family" and starts) + 1
     title = box["label"] if families < 2 else "%s  (%d families)" % (box["label"], families)
+    section = box.get("section") or ""
 
     body = bytearray()
     cursor = page_h - margin - title_size
     body += b"BT /F2 %s Tf %s%s %s Td (%s) Tj ET\n" % (
         n(title_size), rgb(opts.header_color), n(margin), n(cursor),
         pdf_text(title))
+    if section:
+        body += b"BT /F1 %s Tf %s%s %s Td (%s) Tj ET\n" % (
+            n(opts.photo_caption_size), rgb(opts.children_color),
+            n(margin + ruler.textlength(title + "   ", font=fonts["header"])
+              * title_size / opts.photo_caption_size),
+            n(cursor), pdf_text(section))
 
     cursor -= gap + shot_h
     body += b"q %s 0 0 %s %s %s cm /Im0 Do Q\n" % (
@@ -973,7 +986,9 @@ def render_pdf(base, boxes, fonts, opts, path, photos=None):
         "object numbers 1-9 are referenced by hand"
 
     # A page per campsite photo, and a link from that campsite's box to it.
-    shots = [box for box in boxes if box.get("key") in photos]
+    shots = sorted((box for box in boxes if box.get("key") in photos),
+                   key=lambda box: (box.get("section_rank", 0),
+                                    natural_key(box["label"])))
     caption_fonts = {
         "family": load_font(opts.font, opts.photo_caption_size, FONT_CANDIDATES),
         "children": load_font(opts.font, opts.photo_caption_size * 0.92,
@@ -1202,6 +1217,9 @@ def main(argv=None):
     }
     ruler = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
 
+    # Photo pages are grouped by campsite type, in the order the sheet lists them.
+    section_rank = {name: rank for rank, name
+                    in enumerate(dict.fromkeys(sections.values()))}
     blocks, unplaced_rows, unplaced_reasons = [], [], []
     for key, entries in by_site.items():
         if key in sites:
@@ -1209,9 +1227,11 @@ def main(argv=None):
             families = [(raw, parents, kids) for raw, parents, kids, _ in entries]
             lines = build_block(label, families, opts)
             box_w, box_h, heights, gaps = measure(ruler, lines, fonts, opts)
-            blocks.append({"label": label, "key": key, "px": px, "py": py,
-                           "w": box_w, "h": box_h, "lines": lines,
-                           "heights": heights, "gaps": gaps})
+            section = sections.get(key, "")
+            blocks.append({"label": label, "key": key, "section": section,
+                           "section_rank": section_rank.get(section, len(section_rank)),
+                           "px": px, "py": py, "w": box_w, "h": box_h,
+                           "lines": lines, "heights": heights, "gaps": gaps})
         else:
             reason = ("site has no coordinates in the campsites CSV"
                       if key in no_coords else "site not found in the campsites CSV")
