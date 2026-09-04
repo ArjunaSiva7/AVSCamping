@@ -19,10 +19,14 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import datetime
+import hashlib
 import io
+import json
 import math
 import os
 import re
+import shlex
 import sys
 import textwrap
 from collections import OrderedDict
@@ -75,6 +79,26 @@ GRADE_COLORS = [
     (110, 84, 32),    # 12  bronze
 ]
 UNKNOWN_GRADE_COLOR = (105, 105, 105)
+
+# One colour per box, so a box, its leader and its dot can be matched at a
+# glance on a crowded map. Dark and saturated throughout: a pale tint reads as
+# grey against the map art and is indistinguishable from its neighbours.
+BOX_COLORS = [
+    (178, 34, 34),    # firebrick
+    (0, 90, 156),     # steel blue
+    (26, 122, 62),    # green
+    (124, 58, 155),   # purple
+    (183, 87, 12),    # orange
+    (14, 118, 130),   # teal
+    (168, 44, 116),   # magenta
+    (85, 107, 47),    # olive
+    (57, 59, 121),    # navy
+    (140, 74, 56),    # brown
+    (33, 97, 140),    # slate blue
+    (132, 60, 57),    # maroon
+    (99, 62, 128),    # plum
+    (110, 84, 32),    # bronze
+]
 
 # Defaults expressed against a 1000px-tall map; scaled by --ui-scale.
 SCALED_DEFAULTS = {
@@ -526,6 +550,33 @@ def leader_points(px, py, rect, opts):
 # Layouts
 # --------------------------------------------------------------------------
 
+def stamp_size(text, font, ruler, opts):
+    """How big the 'generated on' stamp is: one line of text in a box."""
+    if not text:
+        return (0.0, 0.0)
+    ascent, descent = font.getmetrics()
+    return (ruler.textlength(text, font=font) + 2 * opts.padding,
+            ascent + descent + 2 * opts.padding)
+
+
+def stamp_inset(opts):
+    """How far the stamp sits in from the canvas edge."""
+    return max(2.0, opts.border_width) + opts.padding
+
+
+def stamp_rect(canvas_h, size, opts):
+    """Where that stamp sits: the bottom-left corner, inset from the edge."""
+    w, h = size
+    if not w:
+        return None
+    return (stamp_inset(opts), canvas_h - h - stamp_inset(opts), w, h)
+
+
+def stamp_reserve(size, opts):
+    """Vertical space to keep clear for the stamp, inset and clearance included."""
+    return 0.0 if not size[0] else size[1] + 2 * stamp_inset(opts)
+
+
 def stack_column(items, top, bottom, gap):
     """Stack boxes down one gutter, each as near its campsite's height as it
     can get without colliding with its neighbours."""
@@ -547,7 +598,7 @@ def stack_column(items, top, bottom, gap):
     return items
 
 
-def layout_gutter(base, blocks, opts):
+def layout_gutter(base, blocks, opts, stamp=(0.0, 0.0)):
     """Park every box in a column down the left or right margin, and grow the
     canvas until the columns fit. Nothing is drawn over the map itself."""
     map_w, map_h = base.size
@@ -595,14 +646,17 @@ def layout_gutter(base, blocks, opts):
             # whole column. Keeps the leaders in order and stops them fanning.
             frac = (box["py"] - map_y) / map_h if map_h else 0.5
             box["desired"] = margin + frac * max(0.0, span - box["h"])
-        for box in stack_column(items, margin, canvas_h - margin, gap):
+        # The stamp owns the bottom-left corner, so the left column stops above it.
+        floor = canvas_h - margin - (stamp_reserve(stamp, opts) if side == "left"
+                                     else 0.0)
+        for box in stack_column(items, margin, floor, gap):
             x = (map_x - gutter - box["w"]) if side == "left" else map_x + map_w + gutter
             box["rect"] = (x, box["y"], box["w"], box["h"])
             boxes.append(box)
     return canvas, boxes, "%d left / %d right" % (len(left), len(right))
 
 
-def layout_on_map(base, blocks, sites, opts):
+def layout_on_map(base, blocks, sites, opts, stamp=(0.0, 0.0)):
     """Sit each box beside its campsite, nudged around to avoid collisions."""
     margin = max(0.0, opts.margin)
     if margin:
@@ -619,6 +673,9 @@ def layout_on_map(base, blocks, sites, opts):
     edge = max(2.0, opts.border_width)
     bounds = (edge, edge, base.width - edge, base.height - edge)
     keepouts = label_keepouts(sites, opts)
+    corner = stamp_rect(base.height, stamp, opts)
+    if corner:
+        keepouts.append(corner)
     placed, boxes = [], []
     # Biggest boxes claim space first; they are the hardest to fit later.
     for box in sorted(blocks, key=lambda b: -(b["w"] * b["h"])):
@@ -660,15 +717,17 @@ def draw_map(base, boxes, fonts, opts):
                       fill=opts.halo_color + (255,),
                       width=leader_w + max(1, int(round(opts.halo_width))),
                       joint="curve")
-    for route in routes:
+    for box, route in zip(boxes, routes):
         draw.line([c for point in route for c in point],
-                  fill=opts.leader_color + (255,), width=leader_w, joint="curve")
+                  fill=(box.get("color") or opts.leader_color) + (255,),
+                  width=leader_w, joint="curve")
 
     for box in boxes:
         lines, heights, gaps = box["lines"], box["heights"], box["gaps"]
         x, y, w, h = box["rect"]
+        own = dict(colors, header=box.get("color") or colors["header"])
         draw.rectangle((x, y, x + w, y + h), fill=opts.box_fill + (opts.box_alpha,),
-                       outline=opts.border_color + (255,),
+                       outline=(box.get("color") or opts.border_color) + (255,),
                        width=max(1, int(round(opts.border_width))))
         cursor = y + opts.padding
         for (runs, kind, _), line_h, gap in zip(lines, heights, gaps):
@@ -681,7 +740,7 @@ def draw_map(base, boxes, fonts, opts):
             pen_x = x + opts.padding
             for text, color in runs:
                 draw.text((pen_x, cursor), text, font=fonts[kind],
-                          fill=(color or colors[kind]) + (255,))
+                          fill=(color or own[kind]) + (255,))
                 pen_x += draw.textlength(text, font=fonts[kind])
             cursor += line_h
 
@@ -689,8 +748,19 @@ def draw_map(base, boxes, fonts, opts):
     if r > 0:
         for box in boxes:
             px, py = box["px"], box["py"]
-            draw.ellipse((px - r, py - r, px + r, py + r), fill=opts.dot_color + (255,),
+            draw.ellipse((px - r, py - r, px + r, py + r),
+                         fill=(box.get("color") or opts.dot_color) + (255,),
                          outline=(255, 255, 255, 255), width=max(1, int(round(r / 3))))
+
+    corner = stamp_rect(base.height,
+                        stamp_size(opts.generated, fonts["family"], draw, opts), opts)
+    if corner:
+        x, y, w, h = corner
+        draw.rectangle((x, y, x + w, y + h), fill=opts.box_fill + (opts.box_alpha,),
+                       outline=opts.border_color + (255,),
+                       width=max(1, int(round(opts.border_width))))
+        draw.text((x + opts.padding, y + opts.padding), opts.generated,
+                  font=fonts["family"], fill=opts.text_color + (255,))
 
     return Image.alpha_composite(base, overlay)
 
@@ -723,6 +793,7 @@ class PdfWriter:
 
     def __init__(self):
         self.objects = [None]  # object numbers are 1-based
+        self.info = None       # optional /Info dictionary, set by the caller
 
     def add(self, body):
         self.objects.append(body)
@@ -756,10 +827,18 @@ class PdfWriter:
         out += b"xref\n0 %d\n0000000000 65535 f \n" % len(self.objects)
         for offset in offsets:
             out += b"%010d 00000 n \n" % offset
-        out += (b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
-                % (len(self.objects), xref))
+        info = b" /Info %d 0 R" % self.info if self.info else b""
+        out += (b"trailer\n<< /Size %d /Root 1 0 R%s >>\nstartxref\n%d\n%%%%EOF\n"
+                % (len(self.objects), info, xref))
         with open(path, "wb") as fh:
             fh.write(bytes(out))
+
+
+def pdf_date(when):
+    """A PDF date string, e.g. D:20260903140512-07'00'."""
+    offset = when.strftime("%z") or "+0000"
+    return ("%s%s'%s'" % (when.strftime("D:%Y%m%d%H%M%S"),
+                          offset[:3], offset[3:5])).encode("ascii")
 
 
 def pdf_circle(cx, cy, r):
@@ -825,7 +904,7 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
     body = bytearray()
     cursor = page_h - margin - title_size
     body += b"BT /F2 %s Tf %s%s %s Td (%s) Tj ET\n" % (
-        n(title_size), rgb(opts.header_color), n(margin), n(cursor),
+        n(title_size), rgb(box.get("color") or opts.header_color), n(margin), n(cursor),
         pdf_text(title))
     if section:
         body += b"BT /F1 %s Tf %s%s %s Td (%s) Tj ET\n" % (
@@ -854,8 +933,8 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
     back_text = "< Back to the map"
     back_w = ruler.textlength(back_text, font=fonts["family"])
     body += b"BT /F1 %s Tf %s%s %s Td (%s) Tj ET\n" % (
-        n(opts.photo_caption_size), rgb(opts.leader_color), n(margin), n(cursor),
-        pdf_text(back_text))
+        n(opts.photo_caption_size), rgb(box.get("color") or opts.leader_color),
+        n(margin), n(cursor), pdf_text(back_text))
 
     pdf.put(page_num,
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
@@ -931,16 +1010,18 @@ def render_pdf(base, boxes, fonts, opts, path, photos=None):
         body += b"%s w\n" % n(max(0.1, (opts.leader_width + opts.halo_width) * scale))
         for route in routes:
             body += polyline(route)
-    body += rgb(opts.leader_color, stroke=True)
     body += b"%s w\n" % n(max(0.1, opts.leader_width * scale))
-    for route in routes:
+    for box, route in zip(boxes, routes):
+        body += rgb(box.get("color") or opts.leader_color, stroke=True)
         body += polyline(route)
 
     for box in boxes:
         lines, heights, gaps = box["lines"], box["heights"], box["gaps"]
         x, y, w, h = box["rect"]
+        own = dict(colors, header=box.get("color") or colors["header"])
         body += b"q /GS1 gs\n"
-        body += rgb(opts.box_fill) + rgb(opts.border_color, stroke=True)
+        body += rgb(opts.box_fill) + rgb(box.get("color") or opts.border_color,
+                                         stroke=True)
         body += b"%s w\n" % n(max(0.1, opts.border_width * scale))
         body += b"%s %s %s %s re B\nQ\n" % (n(sx(x)), n(sy(y + h)),
                                              n(w * scale), n(h * scale))
@@ -957,15 +1038,28 @@ def render_pdf(base, boxes, fonts, opts, path, photos=None):
             pen_x = x + opts.padding
             for text, color in runs:
                 body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
-                    PDF_FONT_RESOURCE[kind], n(size), rgb(color or colors[kind]),
+                    PDF_FONT_RESOURCE[kind], n(size), rgb(color or own[kind]),
                     n(sx(pen_x)), n(sy(cursor + ascents[kind])), pdf_text(text))
                 pen_x += ruler.textlength(text, font=fonts[kind])
             cursor += line_h
 
     if opts.dot_radius > 0:
-        body += rgb(opts.dot_color)
         for box in boxes:
+            body += rgb(box.get("color") or opts.dot_color)
             body += pdf_circle(sx(box["px"]), sy(box["py"]), opts.dot_radius * scale)
+
+    corner = stamp_rect(height, stamp_size(opts.generated, fonts["family"], ruler, opts),
+                        opts)
+    if corner:
+        x, y, w, h = corner
+        body += b"q /GS1 gs\n" + rgb(opts.box_fill) + rgb(opts.border_color, stroke=True)
+        body += b"%s w\n" % n(max(0.1, opts.border_width * scale))
+        body += b"%s %s %s %s re B\nQ\n" % (n(sx(x)), n(sy(y + h)),
+                                             n(w * scale), n(h * scale))
+        body += b"BT %s %s Tf %s%s %s Td (%s) Tj ET\n" % (
+            PDF_FONT_RESOURCE["family"], n(opts.font_size * scale), rgb(opts.text_color),
+            n(sx(x + opts.padding)), n(sy(y + opts.padding + ascents["family"])),
+            pdf_text(opts.generated))
 
     jpeg = io.BytesIO()
     base.convert("RGB").save(jpeg, "JPEG", quality=opts.pdf_quality, optimize=True)
@@ -982,6 +1076,9 @@ def render_pdf(base, boxes, fonts, opts, path, photos=None):
                 b"/Encoding /WinAnsiEncoding >>" % face)
     pdf.add(b"<< /Type /ExtGState /ca %s /CA 1 >>" % n(opts.box_alpha / 255.0))
     pdf.add(b"<< /Type /ExtGState /ca 0.10 /CA 0.10 >>")  # drop shadow
+    # So the generation time survives even a page printed without the corner stamp.
+    pdf.info = pdf.add(b"<< /Producer (plot_assignments.py) /CreationDate (%s) >>"
+                       % pdf_date(opts.generated_at))
     assert (catalog, pages, page, content, map_image) == (1, 2, 3, 4, 5), \
         "object numbers 1-9 are referenced by hand"
 
@@ -1136,6 +1233,10 @@ def build_parser():
     g.add_argument("--shadow-blur", type=float)
     g.add_argument("--dot-color", type=parse_color, default=(178, 34, 34))
     g.add_argument("--dot-radius", type=float)
+    g.add_argument("--no-box-colors", dest="box_colors", action="store_false",
+                   help="draw every box the same, in --border-color/--header-color/"
+                        "--leader-color/--dot-color, instead of giving each box its "
+                        "own colour")
 
     g = p.add_argument_group("pdf output")
     g.add_argument("--pdf-page-width", type=float,
@@ -1160,8 +1261,15 @@ def build_parser():
                         "[%(default)s]")
 
     g = p.add_argument_group("reporting")
+    g.add_argument("--generated", metavar="TEXT",
+                   help="stamp printed in the bottom-left corner, saying when the "
+                        "drawing was made (default: the local date and time of this "
+                        "run; pass an empty string to leave it off)")
     g.add_argument("--unplaced-out",
                    help="write the families that could not be plotted to this CSV")
+    g.add_argument("--params-out", metavar="PATH",
+                   help="write the inputs and settings this run used to a JSON file "
+                        "(default: <output>-params.json; pass an empty string to skip)")
     return p
 
 
@@ -1189,8 +1297,66 @@ def write_unplaced(path, rows, fieldnames, reasons):
             writer.writerow(out)
 
 
+def file_facts(path):
+    """What one input looked like at the moment it was read."""
+    try:
+        info = os.stat(path)
+    except OSError as err:
+        return {"path": path, "error": str(err)}
+    facts = {"path": os.path.abspath(path), "bytes": info.st_size,
+             "modified": datetime.datetime.fromtimestamp(info.st_mtime)
+                         .astimezone().isoformat(timespec="seconds")}
+    if os.path.isdir(path):
+        facts["files"] = sum(1 for name in os.listdir(path)
+                             if not name.startswith("."))
+        return facts
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    facts["sha256"] = digest.hexdigest()
+    return facts
+
+
+def write_params(path, opts, command, inputs, outputs):
+    """Record what the run was given and what it produced.
+
+    A PDF on its own says nothing about which assignments CSV it came from;
+    this file is how a drawing is traced back to its inputs.
+    """
+    def plain(value):
+        if isinstance(value, datetime.datetime):
+            return value.isoformat(timespec="seconds")
+        if (isinstance(value, tuple) and len(value) == 3
+                and all(isinstance(c, int) for c in value)):
+            return "#%02x%02x%02x" % value
+        return value
+
+    payload = OrderedDict((
+        ("generated", opts.generated),
+        ("generated_at", plain(opts.generated_at)),
+        ("command", command),
+        ("inputs", inputs),
+        ("outputs", outputs),
+        ("options", OrderedDict((key, plain(value)) for key, value
+                                in sorted(vars(opts).items()))),
+    ))
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+        fh.write("\n")
+
+
 def main(argv=None):
     opts = build_parser().parse_args(argv)
+
+    command = " ".join(shlex.quote(part) for part in
+                       [os.path.basename(sys.argv[0])]
+                       + (list(argv) if argv is not None else sys.argv[1:]))
+    if opts.params_out is None:
+        opts.params_out = os.path.splitext(opts.out)[0] + "-params.json"
+    opts.generated_at = datetime.datetime.now().astimezone()
+    opts.generated = (opts.generated.strip() if opts.generated is not None
+                      else opts.generated_at.strftime("Generated %Y-%m-%d %H:%M %Z").strip())
 
     base = Image.open(opts.map_path).convert("RGBA")
     map_size = base.size
@@ -1239,11 +1405,20 @@ def main(argv=None):
                 unplaced_rows.append(row)
                 unplaced_reasons.append("%s: %s" % (raw, reason))
 
+    # Left to right, so two boxes near each other never land on one colour.
+    if opts.box_colors:
+        for index, box in enumerate(sorted(blocks, key=lambda b: (b["px"], b["py"],
+                                                                 b["label"]))):
+            box["color"] = BOX_COLORS[index % len(BOX_COLORS)]
+
+    stamp = stamp_size(opts.generated, fonts["family"], ruler, opts)
+    if opts.generated:
+        print("stamped    %s" % opts.generated)
     if opts.layout == "gutter":
-        base, boxes, how = layout_gutter(base, blocks, opts)
+        base, boxes, how = layout_gutter(base, blocks, opts, stamp)
     else:
         base, boxes, how = layout_on_map(
-            base, blocks, list(sites.values()), opts)
+            base, blocks, list(sites.values()), opts, stamp)
     if (base.width, base.height) != map_size:
         print("canvas     grown to %dx%d for the boxes (%s)"
               % (base.width, base.height, how))
@@ -1259,6 +1434,7 @@ def main(argv=None):
                 print("           %d assigned campsite(s) have no photo: %s"
                       % (len(missing), ", ".join(missing)))
         page_w, page_h, count = render_pdf(base, boxes, fonts, opts, opts.out, photos)
+        pages = count
         written = ("  (%.1f x %.1f in, %d page%s, searchable text)"
                    % (page_w, page_h, count, "" if count == 1 else "s"))
     else:
@@ -1267,6 +1443,7 @@ def main(argv=None):
             out.convert("RGB").save(opts.out, quality=92)
         else:
             out.save(opts.out)
+        pages = None
         written = ""
 
     placed = [b["rect"] for b in boxes]
@@ -1290,6 +1467,25 @@ def main(argv=None):
             write_unplaced(opts.unplaced_out, unplaced_rows,
                            list(meta["rows"][0].keys()), unplaced_reasons)
             print("  written to %s" % opts.unplaced_out, file=sys.stderr)
+
+    if opts.params_out:
+        inputs = OrderedDict((("campsites", file_facts(opts.campsites)),
+                              ("map", file_facts(opts.map_path)),
+                              ("assignments", file_facts(opts.assignments))))
+        if opts.photos:
+            inputs["photos"] = file_facts(opts.photos)
+        outputs = OrderedDict((
+            ("out", os.path.abspath(opts.out)),
+            ("pages", pages),
+            ("boxes", len(boxes)),
+            ("campsites_located", len(sites)),
+            ("families_plotted", sum(len(v) for v in by_site.values()) - len(unplaced_rows)),
+            ("families_unplaced", len(unplaced_rows)),
+            ("rows_without_assignment", meta["unassigned"]),
+            ("unplaced_out", os.path.abspath(opts.unplaced_out) if opts.unplaced_out else None),
+        ))
+        write_params(opts.params_out, opts, command, inputs, outputs)
+        print("params     %s" % opts.params_out)
     return 0
 
 
