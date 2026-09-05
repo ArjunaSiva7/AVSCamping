@@ -44,6 +44,20 @@ Needs Pillow, and nothing else. Notes:
   inches wide.
 - Each child's name and grade is **coloured by grade**, so one grade's families can be picked
   out at a glance. The palette is fixed, so a grade keeps its colour between runs.
+- Each box gets **its own colour**, shared by its border, its site-id heading, its leader and
+  the dot on its campsite, so a box can be traced to its site on a crowded map. Colours run
+  left to right across the map, so no two boxes near each other land on the same one, and all
+  of them are dark enough to read over the map art. `--no-box-colors` goes back to one colour
+  for everything. Note this is a separate palette from the by-grade colouring of children's
+  names above.
+- The bottom-left corner carries a **`Generated <date> <time>`** stamp, so a printed copy can
+  be told apart from the one it replaced; the PDF also records the time in its metadata.
+  `--generated TEXT` overrides the wording, and `--generated ""` leaves it off — which is also
+  what makes a re-run byte-identical.
+- Every run writes a **`<output>-params.json`** beside its output: the exact command, each
+  input's size, timestamp and SHA-256, every resolved setting, and the counts it produced. A
+  PDF on its own cannot say which assignments CSV it came from; this is how it is traced back.
+  `--params-out PATH` moves it, `--params-out ""` skips it.
 - `--gutter-split balanced` (the default) evens out the two column heights. `--gutter-split
   side` keeps every leader on its own half of the map, but only makes sense when the campsites
   are spread evenly — River Bend's cluster on the right, so it produces one 63-box column.
