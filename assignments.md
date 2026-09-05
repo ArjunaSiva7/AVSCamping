@@ -7,7 +7,8 @@ This describes steps to follow to assign families to campsites. The goal here is
 - Campsites: A sheet describing the campsites available, and adjacency information on which sites are near each other. This sheet indicates the number of campsites of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* below for the expected columns.
 - Output: A path to a sheet or some other file to place the output. By default, use the Families input.
 - Summary Output: A path for the per-campsite summary CSV described in *Per-Campsite Summary* below. By default, write it next to *Output* as `<output name>-sites.csv`.
-- Adjustments: A sheet, list of text, or a combination of tweaks that inform the assignment strategy. This is often used to override the default strategy when a specific family requests to be near another family.
+- Adjustments: A sheet, list of text, or a combination of tweaks that inform the assignment strategy. This is often used to override the default strategy when a specific family requests to be near another family, or to record a deliberate exception such as a family seated with a different grade. See *Adjustments* below.
+- Previous Output: the *Output* of the last run, when there is one. It is where the campsites of *Locked* families are read from (see *Locked Families*).
 
 
 *Procedure*:
@@ -31,10 +32,16 @@ The campsite sheet is a CSV, one row per individual campsite, e.g. River-Bend-ca
 *Assignment Strategy*:
 You'll be assigning campsites according to the following strategy:
 
-Note: You might be operating on an output that has already had prior runs on it as this is an iterative process. Try to avoid messing with existing assignments unless you have to. Families whose *Locked* flag is set have already been notified: never move them, and treat their sites as taken before placing anyone else.
+Note: You might be operating on an output that has already had prior runs on it as this is an iterative process. Try to avoid messing with existing assignments unless you have to. Families whose *Locked* flag is set have already been notified: never move them, and treat their sites as taken before placing anyone else (see *Locked Families*). Once a run has been published, set *Locked* on every family it seated so the next run can only add to it.
 
 - Tent campsites can usually accommodate multiple families; the total attendees on a tent site must stay within that site's `capacity`, and may only go past it into its extended capacity where *Spending Extra Capacity* allows, or by one child where the *Child Squeeze* allows. All non-tent campsites take only one family -- do not exceed 1 family for those, and ignore their blank `capacity`.
 - Look at *Adjustments* for any tweaks on the strategy. An *Adjustment* wins over every rule below.
+
+*Adjustments*:
+Each adjustment names the families it covers and what is wanted; families are best identified by *Code*. Two kinds are common:
+- "Near": the named families want to camp together. Seat them as one party on a single campsite, at the turn of the earliest tent ticket among them and in the block of the grouping grade of that ticket's family; if no campsite takes the whole party, seat them one by one under the ordinary rules. The party may hold more than one grouping grade -- that is the one way the same-grade rule is bent, and only for the families named.
+- "Seat X with Y" / "Seat X on H-nn": a specific placement decided by hand, typically to give a waitlisted family the room another grade left behind, or after raising a campsite's `extra_capacity` in the Campsites sheet for exactly that family. Treat it as a "near" party with the families already on that campsite, and make sure the site's extended capacity (plus the *Child Squeeze*) covers everyone; if the room is not there, raise `extra_capacity` in the Campsites sheet as part of the same change rather than exceeding it silently.
+- Write every adjustment down in the Adjustments input, with the reason, so a later run reproduces it. An adjustment is never inferred from the previous output alone.
 - Non-tent families were assigned based on site availability. You will likely run out of space for tent sites.
 
 *Grouping Grade*:
@@ -58,7 +65,7 @@ Same-grade grouping is a hard rule, not a preference. It outranks packing densit
 - Once every grade has been seated, a grade that still has families waiting may take a campsite that its neighbouring grade left completely empty, and only the campsite on the shared edge of the two blocks: an unused campsite is worth more than a perfect split, and moving the edge keeps both blocks contiguous. If the edge campsite is occupied but the neighbouring grade has an empty campsite deeper in its block that fits the edge's families, slide those families onto it first, then hand over the freed edge. Repeat while such a move seats someone.
 - Tent waitlist: number the families that never got a campsite `TENTWAITLIST-1`, `TENTWAITLIST-2`, ... in tent lottery order across all grades. Draw this list only after *Spending Extra Capacity* has run, so nobody is waitlisted while paid room is still going spare.
 - For non-tent sections, one family per campsite: seat that section's families inside their grade's block the same way.
-- Never move a *Locked* family: treat its campsite as belonging to its grade's block and seat it there first.
+- Never move a *Locked* family: treat its campsite as belonging to its grade's block and seat it there first (see *Locked Families*).
 
 *Spending Extra Capacity*:
 A campsite's `extra_capacity` is room beyond its `capacity` that the campground will sell at a per-person surcharge. Spend it to seat families who would otherwise be waitlisted, never merely to pack a site tighter:
@@ -67,6 +74,8 @@ A campsite's `extra_capacity` is room beyond its `capacity` that the campground 
 - Bias hard towards keeping a grade together. Rank the candidate campsites: first the ones already holding families of this family's grouping grade, and among those the one left with the least unused extended capacity; only if none of them can stretch far enough does an empty campsite in the block get stretched. Filling out a site the grade is already on is worth more than opening a new one.
 - Extended capacity never buys an exception to the same-grade rule: never seat a family on a campsite holding another grade, and never stretch a campsite outside the family's own block. Leaving paid room unspent is the correct outcome when the only families left have a different grouping grade.
 - Treat a blank or `0` `extra_capacity` as no reserve at all, and never exceed extended capacity beyond the *Child Squeeze*. A family that still does not fit stays on the tent waitlist.
+- Never move a *Locked* family, but a campsite it sits on may still be stretched to seat another family of the same grouping grade.
+- Every campsite pushed past its `capacity` owes a surcharge, so it has to be visible: the *Per-Campsite Summary* carries the `extra_capacity` alongside the occupancy, and those sites are the ones to report back after a run.
 
 *Child Squeeze*:
 A small child takes less room than the campground's head count assumes, so a campsite may hold one more person than its limit when that person is a child:
@@ -74,14 +83,26 @@ A small child takes less room than the campground's head count assumes, so a cam
 - The squeeze is worth exactly one person per campsite, ever -- a site already one over its limit takes no more. It is a last resort, not packing: a family always goes to a campsite where it fits within the limit if one exists in its block, and only the campsites where the squeeze is needed are considered when none does, still preferring the one with the least room left.
 - Nothing else bends: same grouping grade only, own block only, *Locked* families untouched. A family with no children listed never squeezes.
 - A squeezed site is reported like a surcharged one: the *Per-Campsite Summary* shows it one over its `capacity` (or over `capacity` + `extra_capacity`), so the campground can be told.
-- Never move a *Locked* family, but a campsite it sits on may still be stretched to seat another family of the same grouping grade.
-- Every campsite pushed past its `capacity` owes a surcharge, so it has to be visible: the *Per-Campsite Summary* carries the `extra_capacity` alongside the occupancy, and those sites are the ones to report back after a run.
+
+*Locked Families*:
+A *Locked* family has been told where it camps, so the run is built around it rather than the other way round:
+- A family is pinned when its *Locked* flag is set and its "Assignment" in *Previous Output* is a real campsite. Seat every pinned family on that campsite before anything else, and count its attendees against the site. Never move it, never waitlist it, and never re-seat it even if the current rules would place it elsewhere.
+- A pinned campsite belongs to the block of the pinned family's grouping grade. Cut the grade blocks (*Keeping Grades Near Each Other*) so each grade's block contains its pinned campsites; a warning, not a failure, if that cannot be done contiguously. Where a campsite carries pinned families of several grades (an *Adjustment* party), the site belongs to the grade of the pinned family that anchors the party -- it does not pull the other grade's block onto that site.
+- Pinned occupancy is a fact, not a choice: a pinned campsite may already be past its `capacity`, its extended capacity or its squeeze, and that is left as it is. Only the room left after the pinned families (within extended capacity, plus the *Child Squeeze*) is available to newcomers, and only for the same grouping grade or under an *Adjustment*.
+- An unlocked family named in an *Adjustment* together with pinned families joins them on the pinned campsite when the room is there, otherwise it is handled under the ordinary rules of its own grade; it never dislodges a pinned family.
+- A run without a *Previous Output* ignores the *Locked* flag and lays the map out from scratch. Otherwise it must be able to reproduce the previous output exactly when nothing else has changed: the only differences between two consecutive runs should be the cancellations, new signups, capacity changes and adjustments made in between.
+- A cancelled family is removed from the Families input (and the signup sheet it came from), not just unassigned; the room it leaves goes to the next family of its grouping grade under the ordinary rules, or to whoever an *Adjustment* names.
+
+*Growing A Campsite*:
+When the waitlist is to be worked down without moving anyone, the lever is the Campsites sheet, not the rules:
+- Raise a campsite's `extra_capacity` by exactly what the family being admitted needs (occupancy after the change = `capacity` + new `extra_capacity`, or one more under the *Child Squeeze*), in the block of that family's grade, preferring a site its grade already sits on. Keep the growth in the sheet so every later run and the *Per-Campsite Summary* show the surcharge.
+- Do this in tent lottery order within the grade unless an *Adjustment* says otherwise, and report the resulting occupancy over `capacity` for each site grown, so the campground can be told and the families billed.
 
 *Per-Campsite Summary*:
 A second CSV written to *Summary Output*, one row per campsite, so the trip can be read site by site instead of family by family. Columns:
 - Site: the campsite's `site` value from the Campsites sheet.
 - Section: that campsite's `section`.
-- Grouping Grade: the grouping grade of the families on the site (they all share one, per *Sharing A Tent Campsite*). Empty for an empty campsite; `unknown` for the unknown group.
+- Grouping Grade: the grouping grade of the families on the site (they all share one, per *Sharing A Tent Campsite*). Empty for an empty campsite; `unknown` for the unknown group. On a mixed site created by an *Adjustment*, the grade of the block the site sits in.
 - Families: the families on the site, pipe separated. Label each family `Parent X Name & Parent Y Name`, dropping the ` & ...` when there is no second parent, e.g. `Arjuna Siva & Priya Siva|Sam Lee`.
 - Children: the children on the site, pipe separated `Name:Grade` pairs in the same form as the Families input, listed family by family in the same order as *Families*, e.g. `Ada Siva:2|Ravi Siva:4|Mia Lee:2`.
 - Capacity: the campsite's `capacity`. Blank for the single-family sections, which have no capacity in the Campsites sheet.
