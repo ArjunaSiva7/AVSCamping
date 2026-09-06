@@ -953,6 +953,74 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
     return page_num
 
 
+def directory_rows(meta):
+    """Return one row per child, sorted alphabetically by child name."""
+    rows = []
+    for row in meta["rows"]:
+        parents = " & ".join(
+            (row.get(column) or "").strip()
+            for column in meta["parent_cols"]
+            if (row.get(column) or "").strip()
+        ) or "(unnamed family)"
+        site = (row.get(meta["assignment_col"]) or "").strip() or "Unassigned"
+        for child, grade in parse_children(row.get(meta["children_col"])):
+            rows.append((child.removesuffix(" (%s)" % grade) if grade else child,
+                         grade or "—", parents, site))
+    return sorted(rows, key=lambda item: natural_key(item[0]))
+
+
+def directory_pages(pdf, rows):
+    """Append landscape letter pages containing the alphabetized child directory."""
+    page_w, page_h = 792.0, 612.0
+    margin = 36.0
+    title_size, header_size, row_size = 18.0, 9.0, 8.5
+    row_height, header_height = 16.0, 22.0
+    rows_per_page = int((page_h - 2 * margin - title_size - header_height - 12) //
+                        row_height)
+    columns = (
+        ("Child", margin, 150.0),
+        ("Grade", margin + 150.0, 52.0),
+        ("Parents", margin + 202.0, 390.0),
+        ("Site", margin + 592.0, 128.0),
+    )
+    chunks = [rows[index:index + rows_per_page]
+              for index in range(0, len(rows), rows_per_page)] or [[]]
+    pages = []
+    for page_index, chunk in enumerate(chunks, start=1):
+        page_num, content_num = pdf.reserve(), pdf.reserve()
+        body = bytearray()
+        title_y = page_h - margin - title_size
+        body += b"BT /F2 %s Tf %s %s Td (%s) Tj ET\n" % (
+            n(title_size), n(margin), n(title_y), pdf_text("Child Directory"))
+        subtitle = "Alphabetical by child | Page %d of %d" % (page_index, len(chunks))
+        body += b"BT /F1 %s Tf %s %s Td (%s) Tj ET\n" % (
+            n(9.0), n(margin + 180), n(title_y + 2), pdf_text(subtitle))
+
+        header_y = title_y - 12 - header_height
+        body += b"q 0.25 0.25 0.25 rg %s %s %s %s re f Q\n" % (
+            n(margin), n(header_y), n(page_w - 2 * margin), n(header_height))
+        for label, x, _ in columns:
+            body += b"BT /F2 %s Tf 1 1 1 rg %s %s Td (%s) Tj ET\n" % (
+                n(header_size), n(x), n(header_y + 7), pdf_text(label))
+
+        for row_index, row in enumerate(chunk):
+            baseline = header_y - row_height * (row_index + 1) + 4
+            if row_index % 2 == 0:
+                body += b"q 0.96 0.96 0.96 rg %s %s %s %s re f Q\n" % (
+                    n(margin), n(baseline - 4), n(page_w - 2 * margin), n(row_height))
+            for value, (_, x, _) in zip(row, columns):
+                body += b"BT /F1 %s Tf 0 0 0 rg %s %s Td (%s) Tj ET\n" % (
+                    n(row_size), n(x), n(baseline), pdf_text(value))
+
+        pdf.put(page_num,
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "
+                b"/Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> "
+                b"/Contents %d 0 R >>" % (n(page_w), n(page_h), content_num))
+        pdf.put_stream(content_num, b"", bytes(body))
+        pages.append(page_num)
+    return pages
+
+
 def link_annot(rect, target_page):
     x0, y0, x1, y1 = rect
     return (b"<< /Type /Annot /Subtype /Link /Border [0 0 0] "
@@ -960,7 +1028,7 @@ def link_annot(rect, target_page):
             % (n(x0), n(y0), n(x1), n(y1), target_page))
 
 
-def render_pdf(base, boxes, fonts, opts, path, photos=None):
+def render_pdf(base, boxes, fonts, opts, path, photos=None, directory=None):
     """Write the map plus vector boxes and live text to a PDF.
 
     Campsites with a photo get a page of their own, linked from their box
@@ -1114,11 +1182,12 @@ def render_pdf(base, boxes, fonts, opts, path, photos=None):
                    b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode"
                    % (width, height), jpeg)
 
-    order = [page] + [box["photo_page"] for box in shots]
+    directory_page_numbers = directory_pages(pdf, directory or [])
+    order = [page] + [box["photo_page"] for box in shots] + directory_page_numbers
     pdf.put(pages, b"<< /Type /Pages /Kids [%s] /Count %d >>"
             % (b" ".join(b"%d 0 R" % i for i in order), len(order)))
     pdf.save(path)
-    return page_w / 72.0, page_h / 72.0, len(order)
+    return page_w / 72.0, page_h / 72.0, len(order), len(directory_page_numbers)
 
 
 # --------------------------------------------------------------------------
@@ -1433,10 +1502,15 @@ def main(argv=None):
             if missing:
                 print("           %d assigned campsite(s) have no photo: %s"
                       % (len(missing), ", ".join(missing)))
-        page_w, page_h, count = render_pdf(base, boxes, fonts, opts, opts.out, photos)
+        directory = directory_rows(meta)
+        page_w, page_h, count, directory_count = render_pdf(
+            base, boxes, fonts, opts, opts.out, photos, directory)
         pages = count
         written = ("  (%.1f x %.1f in, %d page%s, searchable text)"
                    % (page_w, page_h, count, "" if count == 1 else "s"))
+        print("directory  %d children across %d page%s"
+              % (len(directory), directory_count,
+                 "" if directory_count == 1 else "s"))
     else:
         out = draw_map(base, boxes, fonts, opts)
         if opts.out.lower().endswith((".jpg", ".jpeg")):
@@ -1482,6 +1556,8 @@ def main(argv=None):
             ("families_plotted", sum(len(v) for v in by_site.values()) - len(unplaced_rows)),
             ("families_unplaced", len(unplaced_rows)),
             ("rows_without_assignment", meta["unassigned"]),
+            ("directory_children", len(directory) if opts.out.lower().endswith(".pdf") else 0),
+            ("directory_pages", directory_count if opts.out.lower().endswith(".pdf") else 0),
             ("unplaced_out", os.path.abspath(opts.unplaced_out) if opts.unplaced_out else None),
         ))
         write_params(opts.params_out, opts, command, inputs, outputs)
