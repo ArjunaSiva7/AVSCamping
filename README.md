@@ -67,6 +67,9 @@ Needs Pillow, and nothing else. Notes:
   at the map. Any other extension writes a flat image. `--pdf-page-width` sets the page size in
   inches; by default the page is sized so labels land at roughly `--font-size` points, whatever
   the map image's resolution.
+- PDF output ends with a landscape letter **Child Directory**, sorted alphabetically by child
+  name, with grade, parents, and assigned site. Children without a site are retained as
+  `Unassigned`.
 - It prefers the campsites sheet's `x_percent`/`y_percent` over `x_pixels`/`y_pixels`, so the
   same sheet works against a rescaled map image. `--coords` overrides the guess.
 - `--margin` pads blank space around the map for boxes to spill into. On a crowded map this is
