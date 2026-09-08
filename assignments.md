@@ -41,6 +41,7 @@ Note: You might be operating on an output that has already had prior runs on it 
 Each adjustment names the families it covers and what is wanted; families are best identified by *Code*. Two kinds are common:
 - "Near": the named families want to camp together. Seat them as one party on a single campsite, at the turn of the earliest tent ticket among them and in the block of the grouping grade of that ticket's family; if no campsite takes the whole party, seat them one by one under the ordinary rules. The party may hold more than one grouping grade -- that is the one way the same-grade rule is bent, and only for the families named.
 - "Seat X with Y" / "Seat X on H-nn": a specific placement decided by hand, typically to give a waitlisted family the room another grade left behind, or after raising a campsite's `extra_capacity` in the Campsites sheet for exactly that family. Treat it as a "near" party with the families already on that campsite, and make sure the site's extended capacity (plus the *Child Squeeze*) covers everyone; if the room is not there, raise `extra_capacity` in the Campsites sheet as part of the same change rather than exceeding it silently.
+- "H-nn is X only": an exclusive campsite. Nobody else is seated there, not even a family of the same grouping grade with room to spare, and it is not offered when working the waitlist. Its unused seats are the correct outcome, not slack to be filled.
 - Write every adjustment down in the Adjustments input, with the reason, so a later run reproduces it. An adjustment is never inferred from the previous output alone.
 - Non-tent families were assigned based on site availability. You will likely run out of space for tent sites.
 
@@ -92,6 +93,14 @@ A *Locked* family has been told where it camps, so the run is built around it ra
 - An unlocked family named in an *Adjustment* together with pinned families joins them on the pinned campsite when the room is there, otherwise it is handled under the ordinary rules of its own grade; it never dislodges a pinned family.
 - A run without a *Previous Output* ignores the *Locked* flag and lays the map out from scratch. Otherwise it must be able to reproduce the previous output exactly when nothing else has changed: the only differences between two consecutive runs should be the cancellations, new signups, capacity changes and adjustments made in between.
 - A cancelled family is removed from the Families input (and the signup sheet it came from), not just unassigned; the room it leaves goes to the next family of its grouping grade under the ordinary rules, or to whoever an *Adjustment* names.
+- A family's names may change without its seat changing: a parent renamed, or a second parent dropped, is edited in the Families input (and the roster the lottery draws names from, so a rerun agrees) with *Code*, *Attendees*, *Children* and "Assignment" left as they are. *Attendees* is the number the family signed up with, not a count of the names listed, so removing a parent's name never shrinks it unless the family says so.
+
+*Working The Waitlist*:
+After every cancellation or capacity change, walk the tent waitlist in ticket order and check each family against the room now free, in this order of preference:
+- Its own grade first: a campsite in the family's grade block with enough extended capacity (or the *Child Squeeze*, if that site has not used it yet) seats it under the ordinary rules, nobody else moving.
+- Then a mixed-grade *Adjustment*: room left in another grade's block may be offered to a waitlisted family only by writing a "Seat X on H-nn" adjustment, and only where that room is real -- within extended capacity or one squeeze, never on an exclusive campsite. Prefer a site adjacent to the family's own grade block over one across the map, and prefer paid `extra_capacity` over a squeeze.
+- Last, *Growing A Campsite* in the family's own block.
+- Report the result either way: which families now fit and where, and for the rest, the grade and size of room that would be needed. Room that only suits grades with nobody waiting is left open, not filled with a different grade uninvited.
 
 *Growing A Campsite*:
 When the waitlist is to be worked down without moving anyone, the lever is the Campsites sheet, not the rules:
