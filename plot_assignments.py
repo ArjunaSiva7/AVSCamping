@@ -953,10 +953,11 @@ def photo_page(pdf, objects, box, photo_path, map_page, fonts, ruler, opts):
     return page_num
 
 
-def directory_rows(meta):
+def directory_rows(meta, rows=None):
     """Return one row per child, sorted alphabetically by child name."""
+    source_rows = meta["rows"] if rows is None else rows
     rows = []
-    for row in meta["rows"]:
+    for row in source_rows:
         parents = " & ".join(
             (row.get(column) or "").strip()
             for column in meta["parent_cols"]
@@ -1455,10 +1456,11 @@ def main(argv=None):
     # Photo pages are grouped by campsite type, in the order the sheet lists them.
     section_rank = {name: rank for rank, name
                     in enumerate(dict.fromkeys(sections.values()))}
-    blocks, unplaced_rows, unplaced_reasons = [], [], []
+    blocks, matched_rows, unplaced_rows, unplaced_reasons = [], [], [], []
     for key, entries in by_site.items():
         if key in sites:
             label, px, py = sites[key]
+            matched_rows.extend(row for _, _, _, row in entries)
             families = [(raw, parents, kids) for raw, parents, kids, _ in entries]
             lines = build_block(label, families, opts)
             box_w, box_h, heights, gaps = measure(ruler, lines, fonts, opts)
@@ -1502,7 +1504,7 @@ def main(argv=None):
             if missing:
                 print("           %d assigned campsite(s) have no photo: %s"
                       % (len(missing), ", ".join(missing)))
-        directory = directory_rows(meta)
+        directory = directory_rows(meta, matched_rows)
         page_w, page_h, count, directory_count = render_pdf(
             base, boxes, fonts, opts, opts.out, photos, directory)
         pages = count
