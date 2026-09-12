@@ -30,6 +30,7 @@ import shlex
 import sys
 import textwrap
 from collections import OrderedDict
+from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -1424,7 +1425,7 @@ def main(argv=None):
                        + (list(argv) if argv is not None else sys.argv[1:]))
     if opts.params_out is None:
         opts.params_out = os.path.splitext(opts.out)[0] + "-params.json"
-    opts.generated_at = datetime.datetime.now().astimezone()
+    opts.generated_at = datetime.datetime.now(ZoneInfo("America/Los_Angeles"))
     opts.generated = (opts.generated.strip() if opts.generated is not None
                       else opts.generated_at.strftime("Generated %Y-%m-%d %H:%M %Z").strip())
 
