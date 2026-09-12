@@ -7,6 +7,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 - Campsites: A sheet describing the campsites available, and adjacency information on which sites are near each other. This sheet indicates the number of campsites of each type. They may be named accordingly based on the type of site they are. See *Campsites Schema* below for the expected columns.
 - Output: A path to a sheet or some other file to place the output. By default, use the Families input.
 - Summary Output: A path for the per-campsite summary CSV described in *Per-Campsite Summary* below. By default, write it next to *Output* as `<output name>-sites.csv`.
+- Matched Output: A path for the matched-families CSV described in *Matched Families* below. By default, write it next to *Output* as `<output name>-matched.csv`.
 - Adjustments: A sheet, list of text, or a combination of tweaks that inform the assignment strategy. This is often used to override the default strategy when a specific family requests to be near another family, or to record a deliberate exception such as a family seated with a different grade. See *Adjustments* below.
 - Previous Output: the *Output* of the last run, when there is one. It is where the campsites of *Locked* families are read from (see *Locked Families*).
 
@@ -18,6 +19,7 @@ This describes steps to follow to assign families to campsites. The goal here is
 - You will likely run out of tent campsite space. Put left-over families on TENTWAITLIST-<number>
 - Once you are done, save the result including all family details to *Output* including the specific site assignment as column "Assignment".
 - Then write the per-campsite summary to *Summary Output*, derived from that same result so the two files can never disagree. Regenerate it in full on every run.
+- Also write the matched-families list to *Matched Output* (see *Matched Families*), again derived from the same result and regenerated in full.
 
 *Campsites Schema*:
 The campsite sheet is a CSV, one row per individual campsite, e.g. River-Bend-campsites-2026.csv in the AVSRiverBendFall2026 repo for the 2026 River Bend trip. Expected columns:
@@ -123,3 +125,14 @@ Rules:
 - Add a row per tent waitlist ticket at the end, with `TENTWAITLIST-<number>` in *Site*, the section the family was ticketed for in *Section*, blank *Capacity* and *Extra Capacity*, and the family's attendees in *Occupancy*. Do the same for families left unassigned because their *Site Type* was blank or unmatched, using an empty *Site*.
 - *Occupancy* must never exceed *Capacity* + *Extra Capacity* + 1 where a capacity is set (the `+ 1` only under the *Child Squeeze*), and a row must never hold more than one family where *Capacity* is blank. If either happens, the assignment is wrong -- fix the assignment rather than the summary.
 - A row whose *Occupancy* is above its *Capacity* but within *Capacity* + *Extra Capacity* is a site into its paid extra room, which is expected after *Spending Extra Capacity*; one above *Capacity* + *Extra Capacity* is a *Child Squeeze*. List those sites, and how many people over `capacity` each is, when reporting the run: the families on them owe the campground a per-person surcharge.
+
+*Matched Families*:
+A third CSV written to *Matched Output*, one row per family that ended the run with a real campsite, so the people to notify (and bill) can be read off directly. Columns:
+- Family: the family label, in the same `Parent X Name & Parent Y Name` form as the *Per-Campsite Summary*.
+- Site Type: the family's *Site Type* from the Families input, e.g. `Tent Site` or `Stumptown`, with any lottery ticket number stripped (`Tent Site-12` is written as `Tent Site`).
+- Parent X Email, Parent Y Email: copied through as-is from the Families input; *Parent Y Email* is blank when there is no second parent.
+- Assignment: the campsite's `site` value the family was seated on, e.g. `H-24` or `S-5`.
+
+Rules:
+- Only fully matched families appear: a row's *Assignment* is always a `site` from the Campsites sheet. Leave out tent waitlist tickets, cabin waitlist entries and families with a blank or unmatched *Site Type* -- those are the *Per-Campsite Summary*'s trailing rows, not this file's.
+- Keep the rows in the same order as the *Output*, so the file lines up with the Families input and a reader can check one against the other.
