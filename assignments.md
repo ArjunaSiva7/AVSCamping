@@ -29,6 +29,7 @@ The campsite sheet is a CSV, one row per individual campsite, e.g. River-Bend-ca
 - capacity: maximum number of people on that campsite at no extra charge. Only populated for tent sites, where multiple families share a site; blank for the single-family site types.
 - extra_capacity: further people the campsite will take on top of `capacity`, usually at a per-person surcharge. Blank or `0` means the site has none. `capacity` + `extra_capacity` is the campsite's *extended capacity*: the ceiling, only to be reached under *Spending Extra Capacity* below and only ever exceeded by the single person the *Child Squeeze* allows.
 - description: free text about the site, e.g. sun/shade, features, check-in and check-out times. May repeat the max capacity. Only populated for tent sites.
+- length_ft, width_ft, area_sqft: the campsite's footprint in feet and square feet, where the campground has measured it. Blank where unknown (most single-family sections). Informational: it is reported in the *Per-Campsite Summary* so crowding can be judged, but it does not change any capacity rule -- `capacity` and `extra_capacity` remain the only limits.
 - adjacent_sites: the neighbouring campsites, as a comma separated list of `site` values, e.g. `"T-3, T-5"`. This is the adjacency information used to place families near each other; it is symmetric, so treat it as an undirected neighbour list.
 
 *Assignment Strategy*:
@@ -119,12 +120,16 @@ A second CSV written to *Summary Output*, one row per campsite, so the trip can 
 - Capacity: the campsite's `capacity`. Blank for the single-family sections, which have no capacity in the Campsites sheet.
 - Extra Capacity: the campsite's `extra_capacity`, copied through as-is. Blank where the Campsites sheet leaves it blank.
 - Occupancy: the total *Attendees* of the families on the site. `0` for an empty campsite.
+- Area (sq ft): the campsite's `area_sqft`, copied through as-is. Blank where the Campsites sheet leaves it blank.
+- Sq Ft per Family: *Area (sq ft)* divided by the number of families on the site, rounded to a whole number. Blank when the area is blank or the site is empty.
+- Sq Ft per Person: *Area (sq ft)* divided by *Occupancy*, rounded to a whole number. Blank when the area is blank or the site is empty.
 
 Rules:
 - Every campsite in the Campsites sheet gets a row, including the ones nobody was seated on -- an empty site is the thing a reader most wants to spot. Keep the rows in the walking order used in *Keeping Grades Near Each Other* so the file reads along the map, grade block by grade block.
-- Add a row per tent waitlist ticket at the end, with `TENTWAITLIST-<number>` in *Site*, the section the family was ticketed for in *Section*, blank *Capacity* and *Extra Capacity*, and the family's attendees in *Occupancy*. Do the same for families left unassigned because their *Site Type* was blank or unmatched, using an empty *Site*.
+- Add a row per tent waitlist ticket at the end, with `TENTWAITLIST-<number>` in *Site*, the section the family was ticketed for in *Section*, blank *Capacity*, *Extra Capacity* and the area columns, and the family's attendees in *Occupancy*. Do the same for families left unassigned because their *Site Type* was blank or unmatched, using an empty *Site*.
 - *Occupancy* must never exceed *Capacity* + *Extra Capacity* + 1 where a capacity is set (the `+ 1` only under the *Child Squeeze*), and a row must never hold more than one family where *Capacity* is blank. If either happens, the assignment is wrong -- fix the assignment rather than the summary.
 - A row whose *Occupancy* is above its *Capacity* but within *Capacity* + *Extra Capacity* is a site into its paid extra room, which is expected after *Spending Extra Capacity*; one above *Capacity* + *Extra Capacity* is a *Child Squeeze*. List those sites, and how many people over `capacity` each is, when reporting the run: the families on them owe the campground a per-person surcharge.
+- When reporting a run, also call out the tightest tent sites by *Sq Ft per Family* and *Sq Ft per Person* (the bottom few, or anything under roughly 100 sq ft per person) so a crowded site can be spotted even when it is within capacity. Space is a reporting aid only: never move or waitlist a family to improve a site's square footage.
 
 *Matched Families*:
 A third CSV written to *Matched Output*, one row per family that ended the run with a real campsite, so the people to notify (and bill) can be read off directly. Columns:
